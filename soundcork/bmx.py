@@ -5,6 +5,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from soundcork.config import Settings
 from soundcork.model import (
     Audio,
     BmxNavItem,
@@ -35,6 +36,15 @@ TUNEIN_NAVIGATE_ASHX = "http://opml.radiotime.com/?render=json"
 TUNEIN_SEARCH = (
     "https://api.radiotime.com/profiles?fulltextsearch=true&version=1.3&query="
 )
+
+
+def bmx_services_json(settings: Settings) -> str:
+    with open("resources/bmx_services.json", "r") as file:
+        bmx_response_json = file.read()
+        bmx_response_json = bmx_response_json.replace(
+            "{MEDIA_SERVER}", f"{settings.base_url}/media"
+        ).replace("{BMX_SERVER}", settings.base_url)
+        return bmx_response_json
 
 
 def tunein_is_opml_uri(tunein_uri: str) -> bool:
