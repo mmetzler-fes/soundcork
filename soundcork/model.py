@@ -187,7 +187,7 @@ class ContentItem(BaseModel):
     """
 
     id: str
-    name: str
+    name: str = Field(..., min_length=1)
     source: Optional[str] = None
     type: str
     location: str

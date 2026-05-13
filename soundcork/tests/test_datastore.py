@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, mock_open
 
 import pytest
 from fastapi import HTTPException
+from pydantic_core import ValidationError
 
 from soundcork.constants import (
     DEFAULT_DATESTR,
@@ -412,7 +413,7 @@ def test_get_presets_parses_xml_from_mocked_parse(
     assert loaded[1].container_art == ""
 
 
-def test_get_presets_allows_empty_item_name(
+def test_get_presets_fails_on_empty_item_name(
     datastore: DataStore,
     monkeypatch,
 ):
@@ -430,10 +431,10 @@ def test_get_presets_allows_empty_item_name(
     monkeypatch.setattr("soundcork.datastore.ET.parse", lambda _: ET.ElementTree(xml))
     monkeypatch.setattr("soundcork.datastore.path.exists", lambda _: True)
 
-    loaded = datastore.get_presets("12345")
+    with pytest.raises(ValidationError) as validerr:
+        loaded = datastore.get_presets("12345")
 
-    assert len(loaded) == 1
-    assert loaded[0].name == ""
+    assert "name" in str(validerr.value)
 
 
 def test_update_preset_uses_username_when_name_is_missing():
@@ -464,14 +465,14 @@ def test_update_preset_uses_username_when_name_is_missing():
             self.saved_presets = presets_list
 
     datastore = PresetDatastore()
-    xml = b'''<?xml version="1.0" encoding="UTF-8"?>
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
         <preset buttonNumber="7">
             <sourceid>100006</sourceid>
             <username>Beats Radio</username>
             <location>/v1/playback/station/s309907</location>
             <contentItemType>stationurl</contentItemType>
             <containerArt>http://cdn-profiles.tunein.com/s309907/images/logoq.jpg?t=638940914780000000</containerArt>
-        </preset>'''
+        </preset>"""
 
     response = update_preset(datastore, "2123456", "0000BA10B1AB", 7, xml)
 
@@ -479,6 +480,7 @@ def test_update_preset_uses_username_when_name_is_missing():
     assert datastore.saved_presets[0].name == "Beats Radio"
     assert response.find("name").text == "Beats Radio"
     assert response.find("username").text == "Beats Radio"
+
 
 def test_get_recents_parses_xml_from_mocked_parse(
     datastore: DataStore,
