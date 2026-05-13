@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<marge version="221" project="origin/master">
+    <apis>
+        <api type="streaming">
+            <xml>application/vnd.bose.streaming-v1.0+xml</xml>
+            <json>application/vnd.bose.streaming-v1.0+json</json>
+        </api>
+        <api type="customer">
+            <xml>application/vnd.bose.customer-v1.0+xml</xml>
+            <json>application/vnd.bose.customer-v1.0+json</json>
+        </api>
+        <api type="support">
+            <xml>application/vnd.bose.support-v1.0+xml</xml>
+            <json>application/vnd.bose.support-v1.0+json</json>
+        </api>
+    </apis>
+    <dependencies/>
+</marge>

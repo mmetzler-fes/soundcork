@@ -173,6 +173,11 @@ async def power_on(request: Request, response: Response) -> Response:
         return response
 
 
+@app.get("/marge/streaming/resources/api_versions.xml", tags=["marge"])
+def api_versions():
+    return RedirectResponse("/static/resources/api-versions.xml")
+
+
 @app.post(
     "/marge/oauth/device/{device_id}/music/musicprovider/{provider_id}/token/{token_type}",
     tags=["oauth"],
