@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     #  used for development/debugging
     unhandled_log_dir: str = ""
 
+    # Enable the web GUI (miniapp + admin UI). Set to false for API-only mode.
+    enable_gui: bool = True
+
+    # IP address of the Bose SoundTouch speaker (used by start.sh)
+    speaker_ip: str = ""
+
     model_config = SettingsConfigDict(
         # `.env.private` takes priority over `.env.shared`
         env_file=(".env.shared", ".env.private")

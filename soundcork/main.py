@@ -10,7 +10,9 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+import urllib.request
+
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi_etag import Etag
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -77,6 +79,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Base directory of this package (soundcork/)
+_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+
 datastore = DataStore()
 settings = Settings()
 speakers = Speakers(datastore, settings)
@@ -127,7 +132,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+if settings.enable_gui:
+    app.mount("/static", StaticFiles(directory=os.path.join(_PKG_DIR, "static")), name="static")
 
 app.include_router(management_router)
 
@@ -137,8 +143,8 @@ startup_timestamp = int(datetime.now().timestamp() * 1000)
 
 @app.get("/")
 def read_root():
-    # kept for posterity
-    # return {"Bose": "Can't Brick Us"}
+    if not settings.enable_gui:
+        return {"status": "ok", "gui": False}
 
     # if there are speakers that need to be configured default to admin
     all_configured = True
@@ -152,12 +158,49 @@ def read_root():
         return RedirectResponse(url="/admin", status_code=303)
 
 
+@app.get("/stream/{station_id}")
+def proxy_stream(station_id: str):
+    """Proxy a TuneIn radio stream so the Bose device always connects from
+    the soundcork server IP, avoiding session tokens that are IP-locked."""
+    try:
+        playback = tunein_playback(station_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Station not found: {e}")
+
+    stream_url = playback.audio.streamUrl if playback.audio else None
+    if not stream_url:
+        raise HTTPException(status_code=404, detail="No stream URL available for station")
+
+    try:
+        req = urllib.request.Request(stream_url, headers={"User-Agent": "Mozilla/5.0"})
+        upstream = urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not open upstream stream: {e}")
+
+    content_type = upstream.headers.get("Content-Type", "audio/mpeg")
+
+    def generate():
+        try:
+            while True:
+                chunk = upstream.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            upstream.close()
+
+    return StreamingResponse(generate(), media_type=content_type)
+
+
 @app.post(
     "/marge/streaming/support/power_on",
     tags=["marge"],
 )
 async def power_on(request: Request, response: Response) -> Response:
     xml = await request.body()
+    if not xml.strip():
+        response.status_code = HTTPStatus.OK
+        return response
     account = update_device_poweron(datastore, xml)
     if account:
         response.status_code = HTTPStatus.OK
@@ -691,6 +734,23 @@ def bmx_tunein() -> Service:
     return bmx_json_obj["bmx_services"][0]
 
 
+@app.get("/bmx/registry/servicesAvailability", tags=["bmx"])
+def bmx_services_availability() -> JSONResponse:
+    """Returns availability status for all BMX services.
+    Called by the device after fetching /bmx/registry/v1/services."""
+    with open(os.path.join(_PKG_DIR, "bmx_services.json"), "r") as file:
+        bmx_response_json = file.read()
+        bmx_response_json = bmx_response_json.replace(
+            "{MEDIA_SERVER}", f"{settings.base_url}/media"
+        ).replace("{BMX_SERVER}", settings.base_url)
+        bmx_response = BmxResponse.model_validate_json(bmx_response_json)
+    availability = [
+        {"id": svc.id.model_dump(), "isAvailable": True}
+        for svc in bmx_response.bmx_services
+    ]
+    return JSONResponse({"servicesAvailability": availability})
+
+
 @app.get(
     "/bmx/tunein/v1/playback/station/{station_id}",
     response_model_exclude_none=True,
@@ -794,7 +854,7 @@ def bmx_media_file(filename: str) -> FileResponse:
     sanitized_filename = "".join(
         x for x in filename if x.isalnum() or x == "." or x == "-" or x == "_"
     )
-    file_path = os.path.join("media", sanitized_filename)
+    file_path = os.path.join(_PKG_DIR, "media", sanitized_filename)
     if os.path.isfile(file_path):
         return FileResponse(file_path)
 
@@ -815,7 +875,7 @@ def bmx_siriusxm() -> Service:
 
 @app.get("/updates/soundtouch", tags=["swupdate"])
 def sw_update() -> Response:
-    with open("swupdate.xml", "r") as file:
+    with open(os.path.join(_PKG_DIR, "swupdate.xml"), "r") as file:
         sw_update_response = file.read()
         response = Response(content=sw_update_response, media_type="application/xml")
         return response
@@ -871,12 +931,17 @@ def scan_devices():
                 f"Failed to read element for\n   Device: {device}\n     Hostname {hostname_for_device(device)}"
             )
             continue
+
+        def _text(tag: str) -> str:
+            el = info_elem.find(tag)
+            return el.text if el is not None and el.text is not None else ""
+
         device_infos[device.udn] = {
             "device_id": info_elem.attrib.get("deviceID", ""),
-            "name": info_elem.find("name").text,  # type: ignore
-            "type": info_elem.find("type").text,  # type: ignore
-            "marge URL": info_elem.find("margeURL").text,  # type: ignore
-            "account": info_elem.find("margeAccountUUID").text,  # type: ignore
+            "name": _text("name"),
+            "type": _text("type"),
+            "marge URL": _text("margeURL"),
+            "account": _text("margeAccountUUID"),
         }
     return device_infos
 
@@ -885,7 +950,11 @@ def scan_devices():
 def add_device_to_datastore(device_id: str):
     devices = get_bose_devices()
     for device in devices:
-        info_elem = ET.fromstring(read_device_info(hostname_for_device(device)))
+        try:
+            info_elem = ET.fromstring(read_device_info(hostname_for_device(device)))
+        except ET.ParseError as e:
+            logger.error(f"Failed to parse device info for {device}: {e}")
+            continue
         if info_elem.attrib.get("deviceID", "") == device_id:
             success = add_device(device)
             return {device_id: success}
@@ -897,11 +966,10 @@ app.include_router(get_groups_router(datastore))
 app.include_router(get_groups_service_router(datastore))
 
 
-#  include admin router
-app.include_router(get_admin_router(datastore, speakers))
-
-#  include miniapp router
-app.include_router(get_miniapp_router(datastore, speakers))
+#  include admin and miniapp routers only when GUI is enabled
+if settings.enable_gui:
+    app.include_router(get_admin_router(datastore, speakers))
+    app.include_router(get_miniapp_router(datastore, speakers))
 
 # 404 handling
 handler = NotFoundHandler(settings.unhandled_log_dir)

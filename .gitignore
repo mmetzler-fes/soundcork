@@ -140,10 +140,14 @@ celerybeat.pid
 
 # Environments
 .env
+.env.shared
 .envrc
 .venv
 env/
 venv/
+
+# Replaced by setup-speaker.sh + nc relay
+http_proxy_30034.py
 ENV/
 env.bak/
 venv.bak/

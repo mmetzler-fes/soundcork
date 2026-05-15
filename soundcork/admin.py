@@ -35,7 +35,8 @@ def get_admin_router(datastore: DataStore, speakers: Speakers):
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
 
-    templates = Jinja2Templates(directory="templates")
+    import os as _os
+    templates = Jinja2Templates(directory=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "templates"))
 
     router = APIRouter(tags=["admin"])
 

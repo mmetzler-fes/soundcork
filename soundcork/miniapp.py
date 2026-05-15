@@ -37,7 +37,8 @@ def get_device_image(product_code: str) -> str:
 
 
 def get_miniapp_router(datastore: DataStore, speakers: Speakers):
-    templates = Jinja2Templates(directory="templates")
+    import os as _os
+    templates = Jinja2Templates(directory=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "templates"))
 
     router = APIRouter(tags=["miniapp"])
 
@@ -177,7 +178,7 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
                     if (
                         cd.online
                         and cd.in_soundcork
-                        and (cd.marge_server == "Soundcork")
+                        and cd.marge_server.startswith("Soundcork")
                     ):
                         ready = "online"
                     devices.append(
@@ -402,6 +403,108 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
 
         except Exception as e:
             logger.error(f"Error in play endpoint: {e}")
+            return RedirectResponse(url="/miniapp/dashboard", status_code=303)
+
+    @router.post("/miniapp/play-preset")
+    async def play_preset(request: Request):
+        """Select a preset and immediately play it if a device is already selected."""
+        try:
+            form_data = await request.form()
+            content_item_id_raw = form_data.get("content_item_id")
+            content_item_name_raw = form_data.get("content_item_name")
+
+            if not content_item_id_raw or not content_item_name_raw:
+                return RedirectResponse(url="/miniapp/dashboard", status_code=303)
+
+            content_item_id = str(content_item_id_raw)
+            content_item_name = str(content_item_name_raw)
+
+            selected_device_id = request.cookies.get("soundcork_selected_device_id")
+
+            response = RedirectResponse(url="/miniapp/dashboard", status_code=303)
+            # Always store the selected content item
+            response.set_cookie(
+                key="soundcork_selected_content_item_name",
+                value=content_item_name,
+                max_age=86400 * 30,
+                httponly=False,
+                samesite="strict",
+            )
+            response.set_cookie(
+                key="soundcork_selected_content_item_id",
+                value=content_item_id,
+                max_age=86400 * 30,
+                httponly=False,
+                samesite="strict",
+            )
+
+            # If a device is already selected, play immediately
+            if selected_device_id:
+                success = speakers.play_content_item(selected_device_id, content_item_id)
+                if success:
+                    response.set_cookie(
+                        key="soundcork_is_playing",
+                        value="true",
+                        max_age=86400 * 30,
+                        httponly=False,
+                        samesite="strict",
+                    )
+                    logger.info(
+                        f"Preset {content_item_name} ({content_item_id}) started on device {selected_device_id}"
+                    )
+                else:
+                    logger.error(
+                        f"Failed to play preset {content_item_id} on device {selected_device_id}"
+                    )
+            else:
+                # Auto-select the only online device if there is exactly one
+                all_devs = speakers.all_devices()
+                online_devs = [
+                    (did, cd)
+                    for did, cd in all_devs.items()
+                    if cd.online and cd.in_soundcork and cd.marge_server.startswith("Soundcork")
+                ]
+                if len(online_devs) == 1:
+                    auto_device_id, auto_cd = online_devs[0]
+                    response.set_cookie(
+                        key="soundcork_selected_device",
+                        value=auto_cd.name,
+                        max_age=86400 * 30,
+                        httponly=False,
+                        samesite="strict",
+                    )
+                    response.set_cookie(
+                        key="soundcork_selected_device_id",
+                        value=auto_device_id,
+                        max_age=86400 * 30,
+                        httponly=True,
+                        samesite="strict",
+                    )
+                    success = speakers.play_content_item(auto_device_id, content_item_id)
+                    if success:
+                        response.set_cookie(
+                            key="soundcork_is_playing",
+                            value="true",
+                            max_age=86400 * 30,
+                            httponly=False,
+                            samesite="strict",
+                        )
+                        logger.info(
+                            f"Preset {content_item_name} auto-started on only online device {auto_device_id}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to play preset {content_item_id} on auto-selected device {auto_device_id}"
+                        )
+                else:
+                    logger.info(
+                        f"Preset {content_item_name} selected; no device chosen yet – skipping playback"
+                    )
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in play-preset endpoint: {e}")
             return RedirectResponse(url="/miniapp/dashboard", status_code=303)
 
     @router.post("/miniapp/stop")

@@ -648,7 +648,10 @@ class DataStore:
         If no accounts have been created, returns an empty list.
         """
         accounts: list[str | None] = []
-        for account_id in next(walk(self.data_dir))[1]:
+        entries = next(walk(self.data_dir), None)
+        if entries is None:
+            return accounts
+        for account_id in entries[1]:
             # Check if the ID is digits to distinguish between accounts and power_on devices.
             if account_id.isdigit():
                 accounts.append(account_id)
@@ -661,7 +664,10 @@ class DataStore:
         If the account has no devices, returns an empty list.
         """
         devices: list[str | None] = []
-        for device_id in next(walk(self.account_devices_dir(account_id)))[1]:
+        entries = next(walk(self.account_devices_dir(account_id)), None)
+        if entries is None:
+            return devices
+        for device_id in entries[1]:
             devices.append(device_id)
 
         return devices
@@ -673,7 +679,10 @@ class DataStore:
         - List[device_ids: str]: IDs for every device Soundcork has seen
         """
         devices: list[str] = []
-        for device_id in next(walk(self.poweron_devices_dir()))[1]:
+        entries = next(walk(self.poweron_devices_dir()), None)
+        if entries is None:
+            return devices
+        for device_id in entries[1]:
             devices.append(device_id)
 
         return devices

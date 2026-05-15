@@ -1,4 +1,5 @@
 import logging
+import re
 
 from bosesoundtouchapi.soundtouchclient import (  # type: ignore
     ContentItem as BCContentItem,
@@ -83,6 +84,7 @@ class Speakers:
         """
         combined_devices = {}
         account_ids = self._datastore.list_accounts()
+        print(f"account_ids {account_ids}")
         for account_id in account_ids:
             if account_id:
                 for device_id in self._datastore.list_devices(account_id):
@@ -133,12 +135,83 @@ class Speakers:
                 sc_device = new_cd
             if st_device.StreamingUrl == "https://streaming.bose.com":
                 sc_device.marge_server = "Bose"
-            elif st_device.StreamingUrl == f"{self._settings.base_url}/marge":
+            elif (
+                self._settings.base_url
+                and st_device.StreamingUrl.rstrip("/") == self._settings.base_url.rstrip("/") + "/marge"
+            ):
                 sc_device.marge_server = "Soundcork"
+            elif (
+                not self._settings.base_url
+                and st_device.StreamingUrl.rstrip("/").endswith("/marge")
+            ):
+                logger.warning(
+                    f"Device {st_device.DeviceId} points to {st_device.StreamingUrl} "
+                    "which looks like a Soundcork instance, but base_url is not configured. "
+                    "Set base_url in .env.shared to enable proper detection."
+                )
+                sc_device.marge_server = f"Soundcork? (base_url not set)"
             else:
                 sc_device.marge_server = f"Unknown ({st_device.StreamingUrl})"
 
         return combined_devices
+
+    def _resolve_to_internet_radio(self, ci: ContentItem) -> BCContentItem | None:
+        """For TUNEIN sources, resolve the actual stream URL and return a
+        LOCAL_INTERNET_RADIO ContentItem using the Soundcork Orion endpoint.
+
+        The device fetches the Orion URL directly from Soundcork to get the
+        BmxPlaybackResponse, which contains the proxy stream URL.  This avoids
+        all dependency on the offline Bose BMX cloud and works even after Bose
+        removed TUNEIN/INTERNET_RADIO from the firmware.
+        Returns None if resolution fails.
+        """
+        if ci.source == "TUNEIN":
+            # location is like /v1/playback/station/s24896
+            match = re.search(r"/v1/playback/station/(\w+)$", ci.location or "")
+            if not match:
+                return None
+            station_id = match.group(1)
+            try:
+                import base64, json as _json
+                from soundcork.bmx import tunein_playback
+                resp = tunein_playback(station_id)
+                if not resp.audio or not resp.audio.streamUrl:
+                    return None
+                base = self._settings.base_url.rstrip("/") if self._settings.base_url else ""
+                if not base:
+                    logger.warning(
+                        "base_url is not configured; cannot build LOCAL_INTERNET_RADIO "
+                        f"URL for TUNEIN station {station_id}"
+                    )
+                    return None
+                # Use the Soundcork stream proxy as the actual stream URL so
+                # that all upstream connections originate from the server IP.
+                proxy_url = f"{base}/stream/{station_id}"
+                station_data = base64.urlsafe_b64encode(
+                    _json.dumps(
+                        {"name": ci.name, "imageUrl": "", "streamUrl": proxy_url}
+                    ).encode()
+                ).decode()
+                orion_url = (
+                    f"{base}/core02/svc-bmx-adapter-orion/prod/orion"
+                    f"/station?data={station_data}"
+                )
+                logger.info(
+                    f"Resolved TUNEIN station {station_id} to LOCAL_INTERNET_RADIO "
+                    f"orion URL (proxy stream: {proxy_url})"
+                )
+                return BCContentItem(
+                    name=ci.name,
+                    source="LOCAL_INTERNET_RADIO",
+                    typeValue="stationurl",
+                    location=orion_url,
+                    sourceAccount="",
+                    isPresetable=False,
+                )
+            except Exception as e:
+                logger.error(f"Failed to resolve TUNEIN station {station_id}: {e}")
+                return None
+        return None
 
     def _content_item_to_soundtouchclient(self, ci: ContentItem) -> BCContentItem:
         """Maps our ContentItem to a SoundTouchClient ContentItem."""
@@ -178,7 +251,11 @@ class Speakers:
         logger.info(
             f"Attempting playback of content item {content_item_id} on device {device_id}"
         )
-        bose_content_item = self._content_item_to_soundtouchclient(content_item)
+        # For cloud-dependent sources (e.g. TUNEIN), resolve the stream URL
+        # locally so the device doesn't need to contact the offline Bose BMX servers.
+        bose_content_item = self._resolve_to_internet_radio(content_item)
+        if bose_content_item is None:
+            bose_content_item = self._content_item_to_soundtouchclient(content_item)
         client = SoundTouchClient(cd.st_device)
         client.PlayContentItem(bose_content_item)
 

@@ -38,6 +38,8 @@
                         </button>
                     </form>
                     {% endif %}
+                {% elif selected_content_item and not selected_device_id %}
+                    <span class="hint">Select a device below to play</span>
                 {% endif %}
             </div>
             <div class="account-info">
@@ -62,7 +64,7 @@
             <ol class="presets-grid">
                 {% for preset in presets %}
                 <li>
-                    <form action="/miniapp/select-content-item" method="post" style="display:contents;">
+                    <form action="/miniapp/play-preset" method="post" style="display:contents;">
                         <input type="hidden" name="content_item_id" value="{{ preset.id }}">
                         <input type="hidden" name="content_item_name" value="{{ preset.name }}">
                         <button type="submit" class="preset-card">
@@ -93,7 +95,7 @@
                         <input type="hidden" name="device_id" value="{{ device.device_id }}">
                         <input type="hidden" name="device_name" value="{{ device.name }}">
                         <button type="submit"
-                            {% if device.status == 'offline' %} disabled aria-disabled="true" {% endif %}>
+                            {% if device.status == 'offline' %} disabled aria-disabled="true" title="Device is offline or not connected to Soundcork" {% endif %}>
                         <img 
                             src="/static/images/devices/{{ device.image_file }}" 
                             alt="" 
@@ -101,6 +103,9 @@
                         <div class="device-info">
                             <div class="device-name">{{ device.name }}</div>
                             <div class="device-type">{{ device.product_code }}</div>
+                            {% if device.status == 'offline' %}
+                            <div class="device-status-hint">offline</div>
+                            {% endif %}
                         </div>
                         </button>
                     </form>
