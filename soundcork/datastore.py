@@ -4,7 +4,7 @@ import random
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from http import HTTPStatus
-from os import listdir, mkdir, path, remove, rmdir, walk
+from os import listdir, makedirs, path, remove, rmdir, walk
 from random import randint
 from typing import Optional
 
@@ -58,7 +58,7 @@ class DataStore:
         """returns the top-level directory that stores poweron info for all devices"""
         pdd = path.join(self.data_dir, DEVICES_DIR)
         if not path.exists(pdd):
-            mkdir(pdd)
+            makedirs(pdd, exist_ok=True)
         return pdd
 
     def poweron_device_dir(self, device_id: str) -> str:
@@ -494,7 +494,7 @@ class DataStore:
         """
         device_dir = self.poweron_device_dir(device_id)
         if not path.exists(device_dir):
-            mkdir(device_dir)
+            makedirs(device_dir, exist_ok=True)
 
         with open(
             path.join(device_dir, POWERON_FILE),
@@ -709,8 +709,8 @@ class DataStore:
         if not label:
             label = f"{DEFAULT_ACCOUNT_LABEL} {account}"
         # TODO: add error handling if you can't make the directory
-        mkdir(self.account_dir(account, True))
-        mkdir(self.account_devices_dir(account))
+        makedirs(self.account_dir(account, True), exist_ok=True)
+        makedirs(self.account_devices_dir(account), exist_ok=True)
         # create devices subdirectory
         return True
 
@@ -727,7 +727,7 @@ class DataStore:
             return None
 
         # TODO: add error handling if you can't make the directory
-        mkdir(path.join(self.account_devices_dir(account), device_id))
+        makedirs(path.join(self.account_devices_dir(account), device_id), exist_ok=True)
 
         return self.save_device_info(device, account)
 

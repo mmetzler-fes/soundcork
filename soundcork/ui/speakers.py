@@ -1,5 +1,8 @@
 import logging
 import re
+import urllib.request
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 
 from bosesoundtouchapi.soundtouchclient import (  # type: ignore
     ContentItem as BCContentItem,
@@ -14,6 +17,35 @@ from soundcork.datastore import DataStore
 from soundcork.model import ContentItem
 
 logger = logging.getLogger(__name__)
+
+BOSE_HTTP_PORT = 8090
+
+
+def _get_speaker_status(ip: str) -> tuple[bool, str]:
+    """Check if a speaker responds on port 8090 and return (reachable, margeURL)."""
+    if not ip:
+        logger.debug("_get_speaker_status: empty ip")
+        return False, ""
+    try:
+        url = f"http://{ip}:{BOSE_HTTP_PORT}/info"
+        logger.debug(f"_get_speaker_status: fetching {url}")
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            if resp.status != 200:
+                logger.debug(f"_get_speaker_status: status {resp.status}")
+                return False, ""
+            xml = resp.read()
+        root = ET.fromstring(xml)
+        marge_url = root.findtext("margeURL") or ""
+        logger.info(f"_get_speaker_status: ip={ip} reachable=True margeURL={marge_url!r}")
+        return True, marge_url
+    except Exception as e:
+        logger.warning(f"_get_speaker_status: ip={ip} failed: {e!r}")
+        return False, ""
+
+
+def _is_speaker_reachable(ip: str) -> bool:
+    reachable, _ = _get_speaker_status(ip)
+    return reachable
 
 
 class CombinedDevice(BaseModel):
@@ -62,6 +94,7 @@ class Speakers:
         self._settings = settings
 
     def soundtouch_devices(self) -> dict:
+        self._st_discovery.DiscoverDevices(timeout=2)
         return self._st_discovery.VerifiedDevices
 
     def clear_device(self, device_id: str):
@@ -92,16 +125,35 @@ class Speakers:
                         device_info = self._datastore.get_device_info(
                             account_id, device_id
                         )
+                        reachable, marge_url = _get_speaker_status(device_info.ip_address)
+                        logger.info(
+                            f"all_devices: device={device_id} ip={device_info.ip_address!r} "
+                            f"reachable={reachable} marge_url={marge_url!r} "
+                            f"base_url={self._settings.base_url!r}"
+                        )
+                        if marge_url == "https://streaming.bose.com":
+                            marge_server = "Bose"
+                        elif (
+                            self._settings.base_url
+                            and urlparse(marge_url).hostname == urlparse(self._settings.base_url).hostname
+                            and marge_url.rstrip("/").endswith("/marge")
+                        ):
+                            marge_server = "Soundcork"
+                        elif marge_url:
+                            marge_server = marge_url
+                        else:
+                            marge_server = "Unknown"
+                        logger.info(f"all_devices: device={device_id} marge_server={marge_server!r}")
                         cd = CombinedDevice(
                             # If the IP changes on a device reboot, it would have made a `/power_on`
                             # call to Soundcork, which will have already updated the datastore.
                             id=device_id,
                             ip=device_info.ip_address,
                             name=device_info.name,
-                            online=False,
+                            online=reachable,
                             account=account_id,
                             in_soundcork=True,
-                            marge_server="Unknown",
+                            marge_server=marge_server,
                             reachable=False,
                             st_device=None,
                         )
@@ -137,7 +189,8 @@ class Speakers:
                 sc_device.marge_server = "Bose"
             elif (
                 self._settings.base_url
-                and st_device.StreamingUrl.rstrip("/") == self._settings.base_url.rstrip("/") + "/marge"
+                and urlparse(st_device.StreamingUrl).hostname == urlparse(self._settings.base_url).hostname
+                and st_device.StreamingUrl.rstrip("/").endswith("/marge")
             ):
                 sc_device.marge_server = "Soundcork"
             elif (

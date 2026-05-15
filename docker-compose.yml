@@ -1,6 +1,6 @@
 services:
   soundcork:
-    image: ghcr.io/deborahgu/soundcork:main
+    image: ghcr.io/mmetzler-fes/soundcork:main
     # host network mode is required so the speaker can reach this server by LAN IP
     network_mode: host
     environment:
