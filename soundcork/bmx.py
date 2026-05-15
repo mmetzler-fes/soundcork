@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import os
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -38,8 +39,11 @@ TUNEIN_SEARCH = (
 )
 
 
+_PKG_DIR = os.path.dirname(__file__)
+
+
 def bmx_services_json(settings: Settings) -> str:
-    with open("resources/bmx_services.json", "r") as file:
+    with open(os.path.join(_PKG_DIR, "resources", "bmx_services.json"), "r") as file:
         bmx_response_json = file.read()
         bmx_response_json = bmx_response_json.replace(
             "{MEDIA_SERVER}", f"{settings.base_url}/media"
