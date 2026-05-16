@@ -201,10 +201,7 @@
         }, 200);
     });
 
-    // Only fetch if a device cookie is present
-    if (document.cookie.includes('soundcork_selected_device_id')) {
-        fetchVolume();
-    }
+    fetchVolume();
 })();
 
 // ------------------------------------------------------------------ //
