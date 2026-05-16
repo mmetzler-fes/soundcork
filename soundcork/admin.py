@@ -32,11 +32,16 @@ logger = logging.getLogger(__name__)
 
 
 def get_admin_router(datastore: DataStore, speakers: Speakers):
+    import os as _os
+
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
 
-    import os as _os
-    templates = Jinja2Templates(directory=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "templates"))
+    templates = Jinja2Templates(
+        directory=_os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "templates"
+        )
+    )
 
     router = APIRouter(tags=["admin"])
 

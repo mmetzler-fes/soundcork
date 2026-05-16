@@ -4,8 +4,8 @@ Endpoints for a miniapp UI.
 
 import json
 import logging
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
@@ -43,9 +43,16 @@ def get_device_image(product_code: str) -> str:
     return DEVICE_IMAGE_MAP.get(product_code.lower(), DEFAULT_DEVICE_IMAGE)
 
 
-def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Settings | None = None):
+def get_miniapp_router(
+    datastore: DataStore, speakers: Speakers, settings: Settings | None = None
+):
     import os as _os
-    templates = Jinja2Templates(directory=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "templates"))
+
+    templates = Jinja2Templates(
+        directory=_os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "templates"
+        )
+    )
 
     router = APIRouter(tags=["miniapp"])
 
@@ -451,7 +458,9 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Setti
 
             # If a device is already selected, play immediately
             if selected_device_id:
-                success = speakers.play_content_item(selected_device_id, content_item_id)
+                success = speakers.play_content_item(
+                    selected_device_id, content_item_id
+                )
                 if success:
                     response.set_cookie(
                         key="soundcork_is_playing",
@@ -473,7 +482,9 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Setti
                 online_devs = [
                     (did, cd)
                     for did, cd in all_devs.items()
-                    if cd.online and cd.in_soundcork and cd.marge_server.startswith("Soundcork")
+                    if cd.online
+                    and cd.in_soundcork
+                    and cd.marge_server.startswith("Soundcork")
                 ]
                 if len(online_devs) == 1:
                     auto_device_id, auto_cd = online_devs[0]
@@ -491,7 +502,9 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Setti
                         httponly=True,
                         samesite="strict",
                     )
-                    success = speakers.play_content_item(auto_device_id, content_item_id)
+                    success = speakers.play_content_item(
+                        auto_device_id, content_item_id
+                    )
                     if success:
                         response.set_cookie(
                             key="soundcork_is_playing",
@@ -636,7 +649,9 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Setti
                 )
         except Exception as e:
             logger.error(f"radio-browser.info query failed: {e}")
-            return JSONResponse({"error": "radio-browser.info unreachable"}, status_code=503)
+            return JSONResponse(
+                {"error": "radio-browser.info unreachable"}, status_code=503
+            )
         return JSONResponse({"stations": stations})
 
     @router.post("/miniapp/play-radio")
@@ -675,13 +690,17 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Setti
         if not device_id:
             return JSONResponse({"error": "no device selected"}, status_code=400)
         ma_url = getattr(settings, "music_assistant_url", "") if settings else ""
-        ma_stream_url = getattr(settings, "music_assistant_stream_url", "") if settings else ""
+        ma_stream_url = (
+            getattr(settings, "music_assistant_stream_url", "") if settings else ""
+        )
         if not ma_stream_url:
             return JSONResponse(
                 {"error": "music_assistant_stream_url not configured"},
                 status_code=503,
             )
-        success = speakers.play_radio_station(device_id, ma_stream_url, "Music Assistant")
+        success = speakers.play_radio_station(
+            device_id, ma_stream_url, "Music Assistant"
+        )
         if success:
             return JSONResponse({"ok": True, "ma_url": ma_url})
         return JSONResponse({"error": "playback failed"}, status_code=503)

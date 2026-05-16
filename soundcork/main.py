@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import urllib.request
 import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -10,9 +11,12 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-import urllib.request
-
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi_etag import Etag
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -133,7 +137,11 @@ app.add_middleware(
 )
 
 if settings.enable_gui:
-    app.mount("/static", StaticFiles(directory=os.path.join(_PKG_DIR, "static")), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=os.path.join(_PKG_DIR, "static")),
+        name="static",
+    )
 
 app.include_router(management_router)
 
@@ -169,13 +177,17 @@ def proxy_stream(station_id: str):
 
     stream_url = playback.audio.streamUrl if playback.audio else None
     if not stream_url:
-        raise HTTPException(status_code=404, detail="No stream URL available for station")
+        raise HTTPException(
+            status_code=404, detail="No stream URL available for station"
+        )
 
     try:
         req = urllib.request.Request(stream_url, headers={"User-Agent": "Mozilla/5.0"})
         upstream = urllib.request.urlopen(req, timeout=10)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not open upstream stream: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Could not open upstream stream: {e}"
+        )
 
     content_type = upstream.headers.get("Content-Type", "audio/mpeg")
 
@@ -834,6 +846,8 @@ def bmx_local_internet_radio() -> Service:
     bmx_json_obj = json.loads(bmx_json)
     # this is hardcoded so we know where it is in the array
     return bmx_json_obj["bmx_services"][1]
+
+
 @app.post(
     "/bmx/tunein/v1/report",
     status_code=HTTPStatus.OK,

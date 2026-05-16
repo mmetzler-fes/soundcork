@@ -36,7 +36,9 @@ def _get_speaker_status(ip: str) -> tuple[bool, str]:
             xml = resp.read()
         root = ET.fromstring(xml)
         marge_url = root.findtext("margeURL") or ""
-        logger.info(f"_get_speaker_status: ip={ip} reachable=True margeURL={marge_url!r}")
+        logger.info(
+            f"_get_speaker_status: ip={ip} reachable=True margeURL={marge_url!r}"
+        )
         return True, marge_url
     except Exception as e:
         logger.warning(f"_get_speaker_status: ip={ip} failed: {e!r}")
@@ -125,7 +127,9 @@ class Speakers:
                         device_info = self._datastore.get_device_info(
                             account_id, device_id
                         )
-                        reachable, marge_url = _get_speaker_status(device_info.ip_address)
+                        reachable, marge_url = _get_speaker_status(
+                            device_info.ip_address
+                        )
                         logger.info(
                             f"all_devices: device={device_id} ip={device_info.ip_address!r} "
                             f"reachable={reachable} marge_url={marge_url!r} "
@@ -135,7 +139,8 @@ class Speakers:
                             marge_server = "Bose"
                         elif (
                             self._settings.base_url
-                            and urlparse(marge_url).hostname == urlparse(self._settings.base_url).hostname
+                            and urlparse(marge_url).hostname
+                            == urlparse(self._settings.base_url).hostname
                             and marge_url.rstrip("/").endswith("/marge")
                         ):
                             marge_server = "Soundcork"
@@ -143,7 +148,9 @@ class Speakers:
                             marge_server = marge_url
                         else:
                             marge_server = "Unknown"
-                        logger.info(f"all_devices: device={device_id} marge_server={marge_server!r}")
+                        logger.info(
+                            f"all_devices: device={device_id} marge_server={marge_server!r}"
+                        )
                         cd = CombinedDevice(
                             # If the IP changes on a device reboot, it would have made a `/power_on`
                             # call to Soundcork, which will have already updated the datastore.
@@ -189,14 +196,14 @@ class Speakers:
                 sc_device.marge_server = "Bose"
             elif (
                 self._settings.base_url
-                and urlparse(st_device.StreamingUrl).hostname == urlparse(self._settings.base_url).hostname
+                and urlparse(st_device.StreamingUrl).hostname
+                == urlparse(self._settings.base_url).hostname
                 and st_device.StreamingUrl.rstrip("/").endswith("/marge")
             ):
                 sc_device.marge_server = "Soundcork"
-            elif (
-                not self._settings.base_url
-                and st_device.StreamingUrl.rstrip("/").endswith("/marge")
-            ):
+            elif not self._settings.base_url and st_device.StreamingUrl.rstrip(
+                "/"
+            ).endswith("/marge"):
                 logger.warning(
                     f"Device {st_device.DeviceId} points to {st_device.StreamingUrl} "
                     "which looks like a Soundcork instance, but base_url is not configured. "
@@ -225,12 +232,19 @@ class Speakers:
                 return None
             station_id = match.group(1)
             try:
-                import base64, json as _json
+                import base64
+                import json as _json
+
                 from soundcork.bmx import tunein_playback
+
                 resp = tunein_playback(station_id)
                 if not resp.audio or not resp.audio.streamUrl:
                     return None
-                base = self._settings.base_url.rstrip("/") if self._settings.base_url else ""
+                base = (
+                    self._settings.base_url.rstrip("/")
+                    if self._settings.base_url
+                    else ""
+                )
                 if not base:
                     logger.warning(
                         "base_url is not configured; cannot build LOCAL_INTERNET_RADIO "
@@ -400,7 +414,9 @@ class Speakers:
             return False
 
         station_data = _b64.urlsafe_b64encode(
-            _json.dumps({"name": name, "imageUrl": "", "streamUrl": stream_url}).encode()
+            _json.dumps(
+                {"name": name, "imageUrl": "", "streamUrl": stream_url}
+            ).encode()
         ).decode()
         orion_url = (
             f"{base}/core02/svc-bmx-adapter-orion/prod/orion"
