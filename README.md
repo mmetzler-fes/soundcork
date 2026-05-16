@@ -76,11 +76,11 @@ sudo usermod -aG docker $USER   # log out and back in afterwards
 
 #### 3.2 — Copy the required files to your server
 
-Copy the following files from this repository to a working directory on your server (e.g. `/opt/soundcork`). Note that `docker-compose.nas.yml` is renamed to `docker-compose.yml` so that Docker Compose picks it up automatically:
+Copy the following files from this repository to a working directory on your server (e.g. `/opt/soundcork`):
 
 ```sh
 mkdir -p /opt/soundcork/soundcork/resources
-scp docker-compose.nas.yml  user@server:/opt/soundcork/docker-compose.yml
+scp docker-compose.yml       user@server:/opt/soundcork/
 scp nginx-ETag.conf          user@server:/opt/soundcork/
 scp .env.example             user@server:/opt/soundcork/
 scp setup-speaker.sh         user@server:/opt/soundcork/
