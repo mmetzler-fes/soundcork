@@ -56,6 +56,10 @@ echo "BASE_URL:   $BASE_URL  (relay target: $SERVER_IP:$SERVER_PORT)"
 # ── SSH options ─────────────────────────────────────────────────────────────
 SSH_OPTS="-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no"
 
+# ── 0. Remount /mnt/nv read-write ──────────────────────────────────────────
+echo "Remounting /mnt/nv read-write on speaker..."
+ssh $SSH_OPTS "root@$SPEAKER_IP" "mount -o remount,rw /mnt/nv"
+
 # ── 1. Update OverrideSdkPrivateCfg.xml ─────────────────────────────────────
 TEMPLATE_FILE="soundcork/resources/OverrideSdkPrivateCfg.xml.template"
 TARGET_XML="/mnt/nv/OverrideSdkPrivateCfg.xml"

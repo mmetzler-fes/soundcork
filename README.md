@@ -143,6 +143,15 @@ curl http://localhost:8000/
 
 `setup-speaker.sh` is a host-side script — it runs directly on the server, **not** inside the Docker container. It only needs `bash`, `ssh`, `sed`, and `curl`, which are standard Linux tools. No Python or full repository clone is required; the two files already copied in step 3.2 (`setup-speaker.sh` and `soundcork/resources/OverrideSdkPrivateCfg.xml.template`) are sufficient.
 
+Before running the script, the `/mnt/nv` partition on the speaker must be remounted with write access — it is read-only by default. Connect via SSH and run:
+
+```sh
+ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@SPEAKER_IP \
+    "mount -o remount,rw /mnt/nv"
+```
+
+> **Note:** This remount is temporary and resets to read-only after a reboot. `setup-speaker.sh` performs the remount automatically each time it runs, so you only need to do this manually if you are editing files on the speaker by hand.
+
 Run it once from the deploy directory. It reads `SPEAKER_IP` and `BASE_URL` from `.env` and performs all speaker configuration automatically:
 
 ```sh
@@ -153,7 +162,9 @@ chmod +x setup-speaker.sh
 
 The script does the following:
 
-1. **Writes `/mnt/nv/OverrideSdkPrivateCfg.xml`** on the speaker — this redirects all Bose cloud service URLs (Marge, BMX, swUpdate, stats) to your soundcork server. The template used is `soundcork/resources/OverrideSdkPrivateCfg.xml.template`. The file will contain entries like:
+1. **Remounts `/mnt/nv` read-write** on the speaker so that configuration files can be written.
+
+2. **Writes `/mnt/nv/OverrideSdkPrivateCfg.xml`** on the speaker — this redirects all Bose cloud service URLs (Marge, BMX, swUpdate, stats) to your soundcork server. The template used is `soundcork/resources/OverrideSdkPrivateCfg.xml.template`. The file will contain entries like:
    ```xml
    <SoundTouchSdkPrivateCfg>
        <margeServerUrl>http://192.168.1.100:8001/marge</margeServerUrl>
@@ -162,13 +173,13 @@ The script does the following:
    </SoundTouchSdkPrivateCfg>
    ```
 
-2. **Writes `/mnt/nv/rc.local`** on the speaker — this installs a persistent `nc` relay that listens on `127.0.0.1:30034` and forwards all connections to `SERVER_IP:8000`. The file survives reboots because `/mnt/nv/` is on a persistent partition. On every boot the speaker executes `rc.local`, which starts the relay in the background.
+3. **Writes `/mnt/nv/rc.local`** on the speaker — this installs a persistent `nc` relay that listens on `127.0.0.1:30034` and forwards all connections to `SERVER_IP:8000`. The file survives reboots because `/mnt/nv/` is on a persistent partition. On every boot the speaker executes `rc.local`, which starts the relay in the background.
 
-3. **Starts the relay immediately** by executing `rc.local` over SSH (no reboot needed for the relay itself).
+4. **Starts the relay immediately** by executing `rc.local` over SSH (no reboot needed for the relay itself).
 
-4. **Reboots the speaker** if the XML config was changed, so that the new server URLs take effect.
+5. **Reboots the speaker** if the XML config was changed, so that the new server URLs take effect.
 
-5. **Waits for the speaker to come back online** (typically 60–90 seconds) and reports success.
+6. **Waits for the speaker to come back online** (typically 60–90 seconds) and reports success.
 
 ---
 
