@@ -41,6 +41,9 @@ services:
       - LOG_LEVEL=info
     volumes:
       - ./music-assistant-data:/data
+      # Local music library — put MP3/FLAC/etc. files here on the host.
+      # In MA: Settings → Providers → Local Files → path = /music
+      - ./music:/music
     restart: unless-stopped
     # Remove or comment out this service if you do not need Music Assistant.
 
