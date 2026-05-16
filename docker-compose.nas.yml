@@ -29,6 +29,9 @@ services:
       - data_dir=/soundcork/data
       - SOUNDCORK_MODE=local
       - SOUNDCORK_LOG_DIR=/soundcork/logs/traffic
+      # Optional: Music Assistant integration
+      - music_assistant_url=${MUSIC_ASSISTANT_URL:-}
+      - music_assistant_stream_url=${MUSIC_ASSISTANT_STREAM_URL:-}
     volumes:
       # Persist user data (presets, device info, etc.) across container restarts
       - ./data:/soundcork/data
@@ -42,3 +45,13 @@ services:
     volumes:
       - ./nginx-ETag.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
+  music-assistant:
+    image: ghcr.io/music-assistant/server:latest
+    container_name: music-assistant
+    network_mode: host
+    environment:
+      - LOG_LEVEL=info
+    volumes:
+      - ./music-assistant-data:/data
+    restart: unless-stopped
+    # Comment out the music-assistant service if you do not need it.
