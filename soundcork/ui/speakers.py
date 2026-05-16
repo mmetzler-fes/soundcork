@@ -354,16 +354,32 @@ class Speakers:
     def get_volume(self, device_id: str) -> int | None:
         """Get the current volume of a device (0-100), or None on failure."""
         cd = self.all_devices().get(device_id)
-        if not cd or not cd.st_device:
-            logger.error(f"Device {device_id} not found or not online")
+        if not cd:
+            logger.error(f"Device {device_id} not found")
             return None
-        try:
-            client = SoundTouchClient(cd.st_device)
-            vol = client.GetVolume()
-            return int(vol.ActualVolume)
-        except Exception as e:
-            logger.error(f"Error getting volume for device {device_id}: {e}")
-            return None
+        if cd.st_device:
+            try:
+                client = SoundTouchClient(cd.st_device)
+                vol = client.GetVolume()
+                return int(vol.Actual)
+            except Exception as e:
+                logger.warning(
+                    f"SoundTouch API get_volume failed, trying direct HTTP: {e}"
+                )
+        # Fallback: direct HTTP call when mDNS discovery is unavailable
+        if cd.ip:
+            try:
+                url = f"http://{cd.ip}:{BOSE_HTTP_PORT}/volume"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    root = ET.fromstring(resp.read())
+                actual = root.findtext("actualvolume")
+                if actual is not None:
+                    return int(actual)
+            except Exception as e:
+                logger.error(
+                    f"Direct HTTP get_volume failed for {device_id} ({cd.ip}): {e}"
+                )
+        return None
 
     def set_volume(self, device_id: str, level: int) -> bool:
         """Set the volume of a device to level (0-100).
@@ -372,17 +388,41 @@ class Speakers:
         """
         level = max(0, min(100, level))
         cd = self.all_devices().get(device_id)
-        if not cd or not cd.st_device:
-            logger.error(f"Device {device_id} not found or not online")
+        if not cd:
+            logger.error(f"Device {device_id} not found")
             return False
-        try:
-            client = SoundTouchClient(cd.st_device)
-            client.SetVolumeLevel(level)
-            logger.info(f"Set volume to {level} on device {device_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error setting volume for device {device_id}: {e}")
-            return False
+        if cd.st_device:
+            try:
+                client = SoundTouchClient(cd.st_device)
+                client.SetVolumeLevel(level)
+                logger.info(f"Set volume to {level} on device {device_id}")
+                return True
+            except Exception as e:
+                logger.warning(
+                    f"SoundTouch API set_volume failed, trying direct HTTP: {e}"
+                )
+        # Fallback: direct HTTP call when mDNS discovery is unavailable
+        if cd.ip:
+            try:
+                url = f"http://{cd.ip}:{BOSE_HTTP_PORT}/volume"
+                body = f"<volume>{level}</volume>".encode()
+                req = urllib.request.Request(
+                    url,
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/xml"},
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                logger.info(
+                    f"Set volume to {level} on device {device_id} via direct HTTP"
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    f"Direct HTTP set_volume failed for {device_id} ({cd.ip}): {e}"
+                )
+        return False
 
     def play_radio_station(self, device_id: str, stream_url: str, name: str) -> bool:
         """Play an internet radio stream URL directly on a device.
