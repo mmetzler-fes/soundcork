@@ -268,23 +268,36 @@ After the speaker has rebooted, check that it is connecting to soundcork:
 
 ### Step 7 — Switch to WiFi (Optional)
 
-If your server is connected via Ethernet and the speaker will eventually run over WiFi (e.g. you want to remove the Ethernet cable from the speaker), the server's IP address may change depending on whether the server itself uses Ethernet or WiFi. If `BASE_URL` needs to change (e.g. the server now has a different IP on WiFi), update it and re-run the setup script:
+Once the speaker is working on LAN you can move it to WiFi. The critical constraint is that **SSH access to the speaker is lost as soon as the Ethernet cable is removed**, so all configuration changes on the speaker must be made while it is still connected via Ethernet.
 
-1. Update `BASE_URL` in `/opt/soundcork/.env` to the new IP of the server:
+The procedure depends on whether the server's IP address changes when the speaker moves to WiFi:
+
+#### Case A — Server IP does not change (server stays on the same network)
+
+The speaker's `OverrideSdkPrivateCfg.xml` and `rc.local` already contain the correct server address. No script needs to be run again.
+
+1. Use the Bose SoundTouch app to configure the speaker's WiFi connection (you can do this while Ethernet is still plugged in).
+2. Reboot the speaker.
+3. After the reboot, remove the Ethernet cable.
+4. Verify WiFi operation as described in Step 6.
+
+#### Case B — Server IP changes (e.g. server switches from Ethernet to WiFi)
+
+Both files on the speaker must be updated to the new server IP **before** the Ethernet cable is removed.
+
+1. Find the new IP the server will have on WiFi and update `BASE_URL` in `/opt/soundcork/.env`:
    ```
    BASE_URL=http://192.168.1.110:8001
    ```
-2. Re-run the setup script — it detects that the XML on the speaker has changed, updates it, and reboots the speaker:
+2. Run `setup-speaker.sh` **while the speaker is still connected via Ethernet** — SSH still works at this point. The script detects the changed URL, updates `/mnt/nv/OverrideSdkPrivateCfg.xml` and `/mnt/nv/rc.local` on the speaker, and reboots it:
    ```sh
+   cd /opt/soundcork
    ./setup-speaker.sh
    ```
-3. Connect the speaker to WiFi via the Bose SoundTouch app if it is not already configured for WiFi, then remove the Ethernet cable.
-4. After the speaker reconnects over WiFi, verify operation as described in Step 6.
+3. After the reboot, remove the Ethernet cable from the speaker.
+4. Verify WiFi operation as described in Step 6.
 
-> **Files changed by `setup-speaker.sh`:**
-> - `.env` — edit `BASE_URL` manually before re-running the script.
-> - `/mnt/nv/OverrideSdkPrivateCfg.xml` on the speaker — updated with the new server URL.
-> - `/mnt/nv/rc.local` on the speaker — updated with the new relay target IP.
+> **If the speaker is already on WiFi without Ethernet:** SSH access is no longer available and `setup-speaker.sh` cannot connect. The only way to update the configuration is to plug the Ethernet cable back in, reboot the speaker (so it gets a wired IP again), and then repeat from step 2 above.
 
 ---
 
