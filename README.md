@@ -1,238 +1,299 @@
 # soundcork
 Intercept API for Bose SoundTouch after they turn off the servers
 
-## Status
+## Overview
 
-This project is beta. We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for more information, and the project [milestones](https://github.com/deborahgu/soundcork/milestones?sort=title&direction=asc) for our goals.
+soundcork is a self-hosted replacement for the Bose cloud services that were shut down in February 2026. It replaces the Marge server, the BMX registry server, and related endpoints that SoundTouch devices depend on for basic network functionality, TuneIn radio, custom radio streams, and SiriusXM.
+
+This fork adds two deployment improvements over the original:
+
+- **Docker container deployment** — soundcork and an nginx reverse proxy run as Docker containers. The image is published at `ghcr.io/mmetzler-fes/soundcork:main` and supports both `linux/amd64` and `linux/arm64` (Raspberry Pi, NAS). Configuration and data are mounted as volumes so the container can be updated without losing data.
+
+- **Connection relay (port 30034)** — The SoundTouch firmware routes certain HTTPS requests through a local proxy at `127.0.0.1:30034`. soundcork installs a persistent `nc` relay on the speaker (via `/mnt/nv/rc.local`) that forwards all connections on that port to the soundcork server. This makes BMX and media artwork requests work without any modifications to the speaker's certificate trust store.
 
 Read [SECURITY.md](SECURITY.md) carefully. This should only be run inside your home network, behind a firewall. (If you have a router at home, it probably has a firewall on it.) Don't put it on an open network.
 
-### Service status
-
-We'll maintain a forum post with the [Current Status of Bose Cloud Services](https://github.com/deborahgu/soundcork/discussions/181). Check there for updates. We will update whenever we learn new information.
-
 ## Background
-[Bose has announced that they are shutting down the servers for the SoundTouch system in February, 2026. ](https://www.bose.com/soundtouch-end-of-life) When those servers go away, certain network-based functionality currently available to SoundTouch devices will stop working.
 
-This is an attempt to reverse-engineer those servers so that users can continue to use the full set of SoundTouch functionality after Bose shuts the official servers down.
+[Bose shut down the servers for the SoundTouch system in February 2026.](https://www.bose.com/soundtouch-end-of-life) soundcork reverse-engineers those servers so that users can continue to use the full set of SoundTouch functionality.
 
-### Context
+The SoundTouch speaker stores the URLs of all Bose cloud services in `/opt/Bose/etc/SoundTouchSdkPrivateCfg.xml`. By placing an override file at `/mnt/nv/OverrideSdkPrivateCfg.xml`, all those URLs can be redirected to a local soundcork server without touching the original file (which, if corrupted, causes a reboot loop requiring a firmware update). See [Ueberbose API](https://github.com/julius-d/ueberboese-api) for background.
 
-[As described here](https://flarn2006.blogspot.com/2014/09/hacking-bose-soundtouch-and-its-linux.html), it is possible to access the underlying server by creating a USB stick with an empty file called ```remote_services``` and then booting the SoundTouch with the USB stick plugged in to the USB port in the back. From there we can then telnet (or ssh, but the ssh server running is fairly old) over and log in as root (no password).
+---
 
-Once logged into the speaker, you can go to `/opt/Bose/etc` and look at the file `SoundTouchSdkPrivateCfg.xml`:
+## Step-by-Step: Preparing a SoundTouch Speaker for soundcork
 
-	<?xml version="1.0" encoding="utf-8"?>
-	<SoundTouchSdkPrivateCfg>
-	  <margeServerUrl>https://streaming.bose.com</margeServerUrl>
-	  <statsServerUrl>https://events.api.bosecm.com</statsServerUrl>
-	  <swUpdateUrl>https://worldwide.bose.com/updates/soundtouch</swUpdateUrl>
-	  <usePandoraProductionServer>true</usePandoraProductionServer>
-	  <isZeroconfEnabled>true</isZeroconfEnabled>
-	  <saveMargeCustomerReport>false</saveMargeCustomerReport>
-	  <bmxRegistryUrl>https://content.api.bose.io/bmx/registry/v1/services</bmxRegistryUrl>
-	</SoundTouchSdkPrivateCfg>
+### Step 1 — Connect the Speaker to LAN via Ethernet
 
-Assumingly all four servers listed there will be shut down. From testing, the `marge` server is necessary for basic network functionality, and the `bmx` server seems to be required for TuneIn radio, custom radio streams, and SiriusXM, at least. The stats and swUpdate addresses don't seem to be necessary for the speaker to function.
+For the initial setup the speaker must be reachable over a wired Ethernet connection so that you can determine its IP address and connect to it via SSH.
 
-## Running, testing, and installing soundcork
+1. Connect an Ethernet cable between the speaker and your router or switch.
+2. Look up the IP address assigned to the speaker in your router's DHCP table (or use a network scanner such as `nmap -sn 192.168.1.0/24`). Note this address — it is referred to as `SPEAKER_IP` throughout this guide.
 
-### Development
+---
 
-See the [wiki](https://github.com/deborahgu/soundcork/wiki/) for developer guidelines.
+### Step 2 — Enable SSH Access on the Speaker
 
-### Installing
+The speaker's SSH server can only be reached after the speaker reads a special trigger file from a USB drive on boot.
 
-This has been written and tested with Python 3.12. Eventually it will be bundled as an installable app but for now you'll want a virtual environment.
+1. Take a USB drive formatted as FAT32.
+2. Create an **empty** file named `remote_services` in the root of the drive:
+   ```sh
+   touch /media/your-usb/remote_services
+   ```
+3. Safely eject the drive and plug it into the USB port on the back of the SoundTouch speaker.
+4. Power-cycle the speaker (unplug the power cord and plug it back in). The speaker reads the USB drive during boot and activates the SSH server.
+5. Verify SSH access — the speaker runs a legacy SSH server, so you need to allow old RSA keys:
+   ```sh
+   ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@SPEAKER_IP
+   ```
+   Log in as `root`; there is no password. If you reach a shell prompt, SSH access is working.
 
+> **Tip:** Set up key-based authentication now so that `setup-speaker.sh` can connect without a password prompt:
+> ```sh
+> ssh-copy-id -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@SPEAKER_IP
+> ```
 
-1. You can use `venv`, `virtualenvwrapper`, or any other tool that lets you
-manage virtual environments. These docs assume `venv`.
-	- Unix, Windows, and MacOS [installation and use guide for venv](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/).
-	- Your operating system might have some prerequisites here. On ubuntu, you may need:
-		```sh
-		sudo apt install python3-pip python3.12-venv
-		```
-1. Set up the virtual environment and run it. Run these commands in the
-directory where you've cloned the repository. (Adapt as needed for your shell
-or OS.)
+---
 
-	```sh
-	mkdir .venv
-	python3.12 -m venv .venv
-	source .venv/bin/activate
-	```
-1. Install the pre-requisites
-	```bash
-	pip install -r requirements.txt
-	```
+### Step 3 — Prepare the soundcork Server
 
-When you're done with the virtual environment, you can type `deactivate` to leave that shell.
+The soundcork server runs as a Docker container. It must be running and reachable from the speaker **before** the speaker is configured to use it.
 
-### Running
+#### 3.1 — Install Docker
 
-- To run in test
-	```sh
-	fastapi dev main.py
-	# server is on http://127.0.0.1:8000
-	```
-- To run a prod server
-	```sh
-	fastapi run main.py
-	```
-- To run as a daemon
-    - install the package in your virtualenv
-		```sh
-		pip install build && \
-		python -m build && \
-		pip install dist/*.whl
-		``` 
-    - If using systemd, make a copy of `soundcork.service.example`, named `soundcork.service`
-	- modify the placeholder strings appropriately
-	- then mv to systemd and enable.
-		```sh
-		sudo mv soundcork.service /etc/systemd/system && \
-		sudo systemctl daemon-reload && \
-		sudo systemctl enable soundcork && \
-		sudo systemctl start soundcork
-		```
-    - To update the server, rebuild the project and restart. NOTE: In the current development stage of the project, we code changes may happen without a change of the version number. In these cases, or if you update your local code yourself, this build process has to be repeated, but with the last command modified to ```pip install dist/*.whl --force-reinstall```:
-      ```
-      git pull
-      pip install build && \
-      python -m build && \
-      pip install dist/*.whl --force-reinstall
-      sudo systemctl restart soundcork
-      ```
+Follow the [official Docker installation guide](https://docs.docker.com/engine/install/) for your system. On Debian/Ubuntu:
+```sh
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # log out and back in afterwards
+```
 
-You can verify the server by checking the `/docs` endpoint at your URL.
+#### 3.2 — Copy the required files to your server
 
-### Setting your SoundTouch device to use the soundcork server
+Copy the following files from this repository to a working directory on your server (e.g. `/opt/soundcork`). Note that `docker-compose.nas.yml` is renamed to `docker-compose.yml` so that Docker Compose picks it up automatically:
 
-For purposes of this example, let's say that you've set up a soundcork server on your local server available via hostname ```soundcork.local.example.com``` and running on port 8000.  Let's also say that you want a data dir at ```/home/soundcork/db```.
+```sh
+mkdir -p /opt/soundcork/soundcork/resources
+scp docker-compose.nas.yml  user@server:/opt/soundcork/docker-compose.yml
+scp nginx-ETag.conf          user@server:/opt/soundcork/
+scp .env.example             user@server:/opt/soundcork/
+scp setup-speaker.sh         user@server:/opt/soundcork/
+scp soundcork/resources/OverrideSdkPrivateCfg.xml.template \
+    user@server:/opt/soundcork/soundcork/resources/
+```
 
-To configure the server, go to the ```soundcork``` subdirectory of the repository. Copy the ```env.shared``` file to ```env.private```, and then edit it to show your configuration:
+The resulting layout before first run:
 
-	cd soundcork
-	cp .env.shared .env.private
-	vim .env.private
-	
-new contents of ```.env.private```:
+```
+/opt/soundcork/
+├── docker-compose.yml
+├── nginx-ETag.conf
+├── .env.example
+├── setup-speaker.sh
+└── soundcork/
+    └── resources/
+        └── OverrideSdkPrivateCfg.xml.template
+```
 
-	base_url = "http://soundcork.local.example.com:8000"
-	data_dir = "/home/soundcork/db"
+#### 3.3 — Create the configuration file
 
-and then start the server
+```sh
+cd /opt/soundcork
+cp .env.example .env
+```
 
-	fastapi run main.py
+Edit `.env` and fill in both values:
 
-Once a soundcork server is running, the next step is to configure your SoundTouch device to run using soundcork instead of the Bose servers.  The first step is to get access to the Bose system. As mentioned in the Context section above, the way to do that is to get a USB drive, create a file called ```remote_services```, plug it into the USB port of the SoundTouch speaker. 
+```
+# IP and port of this server, as reachable by the speaker over LAN.
+# Use port 8001 (nginx-ETag proxy) for the speaker-facing URL.
+BASE_URL=http://192.168.1.100:8001
 
-### Configuring speakers using the soundcork UI
+# IP of the SoundTouch speaker (needed by setup-speaker.sh)
+SPEAKER_IP=192.168.1.200
+```
 
-The easiest way to configure speakers is through the soundcork UI.  Navigate to your soundcork server at (in this example) `http://soundcork.local.example.com:8000/admin`. You should see a screen like
-![Screenshot of the soundcork admin UI.  A single account is listed with four speakers. ](./docs/images/soundcork-admin.png  "Soundcork UI")
+> Use the **LAN (Ethernet) IP** of your server for `BASE_URL` at this stage. You will update it to the WiFi IP in a later step if needed.
 
-This will list all the speakers found on your local network. The "Marge" listing shows whether the speaker is currently configured to run against the main "Bose" server or are configured to run against your soundcork instance. "In Soundcork" shows if soundcork has the configuration for the speaker or not. "Reachable" indicates if the `remote_services` file has been properly read and the speaker can be accessed for update.
+#### 3.4 — Create data and log directories
 
-Under "Action" there are three possible actions available: 
+```sh
+mkdir -p /opt/soundcork/data /opt/soundcork/logs
+```
 
-- "Configure Account" is run first and both creates the associated account in soundcork and also adds the speaker configuration to soundcork. This action requires that the speaker be Reachable.
-- "Add to Soundcork" may be used to add the speaker configuration to soundcork once the account has been created. 
-- "Switch to Soundcork" actually configures the speaker to run using the soundcork server and then reboots the speaker. The UI will wait until the speaker has rebooted (a little over a minute usually) and then return to the admin screen. This action requires that the speaker be Reachable.
+#### 3.5 — Start the soundcork containers
 
+```sh
+docker compose up -d
+```
 
-### Manual configuration of speakers
+This starts two containers:
+- **soundcork** — the main API server on port 8000
+- **nginx-ETag** — a reverse proxy on port 8001 that adds the `ETag` response header in the casing required by the SoundTouch firmware
 
-If the soundcork admin UI is not working for you, or if you just want a more hands-on experience, you can configure the speakers to run with soundcork directly.
+Verify that the server is responding:
+```sh
+curl http://localhost:8000/
+# Expected: {"Bose":"Can't Brick Us"}
+```
 
-Once the speaker has had the usb with `remote_services` installed, you can connect to it via telnet. So if your SoundTouch device is on 192.168.1.158, you can do
+---
 
-	telnet 192.168.1.158
-	
-You'll get a login screen.  Log in as user ```root```; there is no password. 
-Once you're logged into the shell on the SoundTouch speaker, there are two things that need to be done. First, the speaker has a lot of information about its current configuration; this information will need to be sent to the soundcork server so that we can send it back to the speaker.  Second, the speaker will need to be configured to point to the soundcork server itself.
+### Step 4 — Configure the Speaker
 
-#### Configuring the soundcork server from the Bose speaker
+`setup-speaker.sh` is a host-side script — it runs directly on the server, **not** inside the Docker container. It only needs `bash`, `ssh`, `sed`, and `curl`, which are standard Linux tools. No Python or full repository clone is required; the two files already copied in step 3.2 (`setup-speaker.sh` and `soundcork/resources/OverrideSdkPrivateCfg.xml.template`) are sufficient.
 
-The general layout of the soundcork db (using /home/soundcork/db as the db location) is
+Run it once from the deploy directory. It reads `SPEAKER_IP` and `BASE_URL` from `.env` and performs all speaker configuration automatically:
 
-	/home/soundcork/db/{account}/Presets.xml
-	/home/soundcork/db/{account}/Recents.xml
-	/home/soundcork/db/{account}/Sources.xml
-	/home/soundcork/db/{account}/devices/{deviceid}/DeviceInfo.xml
-		
-The first two things that we'll need to do is to get the speaker's device ID and account ID. Both of these are available via the webserver running on port 8090 of the SoundTouch device:
+```sh
+cd /opt/soundcork
+chmod +x setup-speaker.sh
+./setup-speaker.sh
+```
 
-	http://192.168.1.158:8090/info
+The script does the following:
 
-This should return something like
+1. **Writes `/mnt/nv/OverrideSdkPrivateCfg.xml`** on the speaker — this redirects all Bose cloud service URLs (Marge, BMX, swUpdate, stats) to your soundcork server. The template used is `soundcork/resources/OverrideSdkPrivateCfg.xml.template`. The file will contain entries like:
+   ```xml
+   <SoundTouchSdkPrivateCfg>
+       <margeServerUrl>http://192.168.1.100:8001/marge</margeServerUrl>
+       <bmxRegistryUrl>http://192.168.1.100:8001/bmx/registry/v1/services</bmxRegistryUrl>
+       ...
+   </SoundTouchSdkPrivateCfg>
+   ```
 
-	<info deviceID="A0B1C2D3E4F5">
-	<name>Your SoundTouch Name</name>
-	<type>SoundTouch 20</type>
-	<margeAccountUUID>1234567</margeAccountUUID>
-	
-So now your have your account number of ```1234567``` and device ID of ```A0B1C2D3E4F5```. Now, back on your soundcork system, create directories for the account and device in your ```data_dir```:
+2. **Writes `/mnt/nv/rc.local`** on the speaker — this installs a persistent `nc` relay that listens on `127.0.0.1:30034` and forwards all connections to `SERVER_IP:8000`. The file survives reboots because `/mnt/nv/` is on a persistent partition. On every boot the speaker executes `rc.local`, which starts the relay in the background.
 
-	mkdir -p /home/soundcork/db/1234567/devices/A0B1C2D3E4F5
+3. **Starts the relay immediately** by executing `rc.local` over SSH (no reboot needed for the relay itself).
 
-`Presets.xml`, `Recents.xml`, and `DeviceInfo.xml` can all be gotten via the web UI at `http://{SoundTouchIp}:8090/presets`, `http://{SoundTouchIp}:8090/recents`, and `http://{SoundTouchIp}:8090/info`, respectively. Fetch those URLs and save the returned XML as the apprpriate files. (If you have multiple SoundTouch devices, create a directory and `DeviceInfo.xml` file for each one. If you have multiple accounts that you keep separate, repeat this procedure for each account.)
+4. **Reboots the speaker** if the XML config was changed, so that the new server URLs take effect.
 
-For Sources, there is some information that is stored on the devices themselves that isn't exposed via the web UI, so you have to go onto the device itself to get that file. `telnet` or `ssh` into the device and then transfer the `Sources.xml` file over to your soundcork db:
+5. **Waits for the speaker to come back online** (typically 60–90 seconds) and reports success.
 
-	cd /mnt/nv/BoseApp-Persistence/1/
-	scp Sources.xml username@soundcork.local.example.com:/home/soundcork/db/1234567
-	
-(If you're not running an ssh server on your machine you can also copy over the files to your USB stick and transfer them that way; the stick is mounted at ```/media/sda1```.)
+---
 
-*Note on `Sources.xml`*: The marge server has `id`s associated with the configured sources but these values don't seem to be stored anywhere on the devices. These values should all be unique but I believe that they are arbitrary--that is, it's necessary for soundcork to have `id`s for each source, but not that the `id`s match the original marge `id`s. soundcork will assign `id`s to sources if they are not present, but it might be better at this time to go ahead and assign `id`s in the `Sources.xml` file. To do so, just add an `id` field to each `source` element like so:
+### Step 5 — Populate the soundcork Data Store
 
-	<source displayName="AUX IN" id="123456" secret="">
+soundcork needs a copy of the speaker's Presets, Recents, Sources, and DeviceInfo to serve them back to the speaker. Retrieve the device ID and account ID first:
 
+```sh
+curl http://SPEAKER_IP:8090/info
+```
 
+Example response:
+```xml
+<info deviceID="A0B1C2D3E4F5">
+  <name>Living Room</name>
+  <type>SoundTouch 20</type>
+  <margeAccountUUID>1234567</margeAccountUUID>
+  ...
+</info>
+```
 
-#### Configuring the Bose speaker to use the soundcork server
+Create the directory structure in `data/` (replace values from the response above):
+```sh
+mkdir -p /opt/soundcork/data/1234567/devices/A0B1C2D3E4F5
+```
 
-Now that the soundcork server has all of the information that it needs, we're ready to tell the speaker to use the soundcork server instead of the Bose servers.  For this, we go to the local configuration directory and copy over the default ```SoundTouchSdkPrivateCfg.xml`` as ```OverrideSdkPrivateCfg.xml```
+Fetch `Presets.xml`, `Recents.xml`, and `DeviceInfo.xml` from the speaker's built-in HTTP server and save them to the correct locations:
+```sh
+DATA=/opt/soundcork/data/1234567
+curl http://SPEAKER_IP:8090/presets > $DATA/Presets.xml
+curl http://SPEAKER_IP:8090/recents > $DATA/Recents.xml
+curl http://SPEAKER_IP:8090/info    > $DATA/devices/A0B1C2D3E4F5/DeviceInfo.xml
+```
 
-	cd /mnt/nv
-	cp /opt/Bose/etc/SoundTouchSdkPrivateCfg.xml OverrideSdkPrivateCfg.xml
-	
-and edit the file ```OverrideSdkPrivateCfg.xml```
+`Sources.xml` is not exposed via the HTTP server, so it must be copied from the speaker directly over SSH:
+```sh
+ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@SPEAKER_IP \
+    "cat /mnt/nv/BoseApp-Persistence/1/Sources.xml" > $DATA/Sources.xml
+```
 
-	vi OverrideSdkPrivateCfg.xml
-	
-The original values are
+> **Note on `Sources.xml`:** Each `<source>` element needs a unique `id` attribute. soundcork will assign IDs automatically if they are missing, but it is safer to assign them explicitly:
+> ```xml
+> <source displayName="AUX IN" id="100001" secret="">
+> ```
 
-	<?xml version="1.0" encoding="utf-8"?>
-	<SoundTouchSdkPrivateCfg>
-  	<margeServerUrl>https://streaming.bose.com</margeServerUrl>
-  	<statsServerUrl>https://events.api.bosecm.com</statsServerUrl>
-  	<swUpdateUrl>https://worldwide.bose.com/updates/soundtouch</swUpdateUrl>
-  	<usePandoraProductionServer>true</usePandoraProductionServer>
-  	<isZeroconfEnabled>true</isZeroconfEnabled>
-  	<saveMargeCustomerReport>false</saveMargeCustomerReport>
-  	<bmxRegistryUrl>https://content.api.bose.io/bmx/registry/v1/services</bmxRegistryUrl>
-	</SoundTouchSdkPrivateCfg>>
-	
-set these all to point to the soundcork server
+After completing all the steps above, the working directory and data store should look like this (with your actual `AccountUUID` and `deviceID` in place of the placeholders):
 
-	<?xml version="1.0" encoding="utf-8"?>
-	<SoundTouchSdkPrivateCfg>
-  	<margeServerUrl>http://soundcork.local.example.com:8000/marge</margeServerUrl>
-  	<statsServerUrl>http://soundcork.local.example.com:8000</statsServerUrl>
-  	<swUpdateUrl>http://soundcork.local.example.com:8000/updates/soundtouch</swUpdateUrl>
-  	<usePandoraProductionServer>true</usePandoraProductionServer>
-  	<isZeroconfEnabled>true</isZeroconfEnabled>
-  	<saveMargeCustomerReport>false</saveMargeCustomerReport>
-  	<bmxRegistryUrl>http://soundcork.local.example.com:8000/bmx/registry/v1/services</bmxRegistryUrl>
-	</SoundTouchSdkPrivateCfg>>
+```
+soundcork-deploy/
+├── docker-compose.yml
+├── .env
+├── .env.example
+├── nginx-ETag.conf
+├── logs/
+└── data/
+    ├── Accounts.json
+    ├── AccountUUID/
+    │   ├── Presets.xml
+    │   ├── Recents.xml
+    │   ├── Sources.xml
+    │   └── devices/
+    │       └── deviceID/
+    │           └── DeviceInfo.xml
+    └── devices/
+        └── deviceID/
+            └── PowerOn.xml
+```
 
-And finally, the moment of truth: reboot the speaker.  You can do it the way we did earlier by unplugging it, or, now that we have access to the command prompt, just run
+`Accounts.json` and `PowerOn.xml` are created automatically by soundcork on first contact with the speaker — you do not need to create them manually.
 
-	reboot
-	
+---
 
-*Note* an earlier version of this documentation had you edit the ```/opt/Bose/etc/SoundTouchSdkPrivateCfg.xml``` directly. It turns out that misformatting this file can result in the speaker entering a reboot spiral that requires a firmware update to fix. Editing ```/mnt/nv/OverrideSdkPrivateCfg.xml``` is much safer. (h/t to the [Ueberbose team](https://github.com/julius-d/ueberboese-api)  for finding this.
+### Step 6 — Verify LAN Operation
+
+After the speaker has rebooted, check that it is connecting to soundcork:
+
+1. Open the soundcork admin UI in a browser: `http://SERVER_IP:8001/admin`
+2. The speaker should appear in the list. The "Marge" column should show that it is connected to your soundcork instance, not to `streaming.bose.com`.
+3. Check the Docker logs for incoming requests from the speaker:
+   ```sh
+   docker compose logs -f soundcork
+   ```
+4. Test basic playback — switch between presets and verify that audio plays.
+
+---
+
+### Step 7 — Switch to WiFi (Optional)
+
+If your server is connected via Ethernet and the speaker will eventually run over WiFi (e.g. you want to remove the Ethernet cable from the speaker), the server's IP address may change depending on whether the server itself uses Ethernet or WiFi. If `BASE_URL` needs to change (e.g. the server now has a different IP on WiFi), update it and re-run the setup script:
+
+1. Update `BASE_URL` in `/opt/soundcork/.env` to the new IP of the server:
+   ```
+   BASE_URL=http://192.168.1.110:8001
+   ```
+2. Re-run the setup script — it detects that the XML on the speaker has changed, updates it, and reboots the speaker:
+   ```sh
+   ./setup-speaker.sh
+   ```
+3. Connect the speaker to WiFi via the Bose SoundTouch app if it is not already configured for WiFi, then remove the Ethernet cable.
+4. After the speaker reconnects over WiFi, verify operation as described in Step 6.
+
+> **Files changed by `setup-speaker.sh`:**
+> - `.env` — edit `BASE_URL` manually before re-running the script.
+> - `/mnt/nv/OverrideSdkPrivateCfg.xml` on the speaker — updated with the new server URL.
+> - `/mnt/nv/rc.local` on the speaker — updated with the new relay target IP.
+
+---
+
+## Updating soundcork
+
+To pull the latest container image and restart:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+---
+
+## More Information
+
+- [Deployment Guide](docs/deployment.md) — all deployment options (Docker, Kubernetes, bare metal)
+- [API Specification](docs/API_Spec.md)
+- [Developer Wiki](https://github.com/deborahgu/soundcork/wiki/)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+
 
