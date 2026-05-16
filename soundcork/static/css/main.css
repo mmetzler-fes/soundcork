@@ -615,7 +615,7 @@ button.preset-card:hover {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
-    max-height: 28rem;
+    max-height: 52rem;
     overflow-y: auto;
 }
 
@@ -678,6 +678,26 @@ button.preset-card:hover {
 .radio-play-btn:hover {
     background-color: var(--color-primary);
     color: white;
+}
+
+.radio-save-btn {
+    flex-shrink: 0;
+    padding: 0.3rem 0.5rem;
+    border: 2px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.radio-save-btn:hover:not(:disabled) {
+    border-color: var(--color-primary);
+}
+
+.radio-save-btn:disabled {
+    cursor: default;
+    opacity: 0.7;
 }
 
 /* ------------------------------------------------------------------ */

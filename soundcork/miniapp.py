@@ -673,6 +673,61 @@ def get_miniapp_router(
             return JSONResponse({"ok": True})
         return JSONResponse({"error": "playback failed"}, status_code=503)
 
+    @router.post("/miniapp/save-radio-preset")
+    async def save_radio_preset(request: Request):
+        """Save a radio-browser.info station as a soundcork dashboard preset."""
+        from datetime import datetime, timezone
+
+        from soundcork.model import Preset
+
+        account_id = request.cookies.get("soundcork_account_id")
+        if not account_id:
+            return JSONResponse({"error": "not logged in"}, status_code=401)
+        try:
+            body = await request.json()
+            name = str(body.get("name", "")).strip()
+            url = str(body.get("url", "")).strip()
+        except Exception:
+            return JSONResponse({"error": "invalid body"}, status_code=400)
+        if not name or not url:
+            return JSONResponse({"error": "missing name or url"}, status_code=400)
+
+        try:
+            presets = datastore.get_presets(account_id)
+        except Exception:
+            presets = []
+
+        # Use IDs 100-199 for radio-browser presets (1-6 reserved for hardware presets)
+        used_ids = {int(p.id) for p in presets if p.id.isdigit() and int(p.id) >= 100}
+        new_id = 100
+        while new_id in used_ids:
+            new_id += 1
+        if new_id > 199:
+            return JSONResponse(
+                {"error": "Zu viele gespeicherte Sender (max. 100)"},
+                status_code=400,
+            )
+
+        now = str(int(datetime.now(timezone.utc).timestamp()))
+        new_preset: "Preset" = Preset(
+            id=str(new_id),
+            name=name,
+            source="RADIO_BROWSER",
+            type="stationurl",
+            location=url,
+            source_account="",
+            is_presetable="true",
+            created_on=now,
+            updated_on=now,
+            container_art="",
+        )
+        presets.append(new_preset)
+        datastore.save_presets(account_id, "", presets)
+        logger.info(
+            f"Saved radio preset '{name}' as ID {new_id} for account {account_id}"
+        )
+        return JSONResponse({"ok": True, "id": str(new_id)})
+
     # ------------------------------------------------------------------
     # Music Assistant
     # ------------------------------------------------------------------

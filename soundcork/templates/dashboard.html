@@ -71,7 +71,11 @@
                             {% if preset.container_art %}
                             <img src="{{ preset.container_art }}" alt="">
                             {% endif %}
+                            {% if preset.id | int >= 100 %}
+                            <span class="preset-number" aria-hidden="true">📻</span>
+                            {% else %}
                             <span class="preset-number">{{ preset.id }}</span>
+                            {% endif %}
                             <span class="preset-name">{{ preset.name }}</span>
                         </button>
                     </form>
@@ -244,8 +248,10 @@ async function searchRadio(evt, forceQuery) {
                 <span class="radio-name">${escHtml(s.name)}</span>
                 <span class="radio-meta">${escHtml(s.country)}${s.bitrate ? ' · ' + s.bitrate + ' kbps' : ''}</span>
                 <button class="radio-play-btn" aria-label="Play ${escHtml(s.name)}">▶ Play</button>
+                <button class="radio-save-btn" title="Als Preset im Dashboard speichern" aria-label="Preset speichern für ${escHtml(s.name)}">⭐</button>
             `;
             li.querySelector('.radio-play-btn').addEventListener('click', () => playStation(s));
+            li.querySelector('.radio-save-btn').addEventListener('click', (e) => saveRadioPreset(e, s));
             results.appendChild(li);
         });
     } catch (e) {
@@ -270,6 +276,32 @@ async function playStation(station) {
         }
     } catch (_) {
         status.textContent = 'Netzwerkfehler beim Starten der Wiedergabe.';
+    }
+}
+
+async function saveRadioPreset(evt, station) {
+    const btn = evt.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    try {
+        const r = await fetch('/miniapp/save-radio-preset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: station.url, name: station.name }),
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            btn.textContent = '✅';
+            btn.title = 'Im Dashboard gespeichert – Seite neu laden um ihn zu sehen';
+        } else {
+            btn.textContent = '⭐';
+            btn.title = d.error || 'Fehler beim Speichern';
+            btn.disabled = false;
+        }
+    } catch (_) {
+        btn.textContent = '⭐';
+        btn.title = 'Netzwerkfehler';
+        btn.disabled = false;
     }
 }
 

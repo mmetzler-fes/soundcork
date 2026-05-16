@@ -273,7 +273,7 @@ class Speakers:
                     typeValue="stationurl",
                     location=orion_url,
                     sourceAccount="",
-                    isPresetable=False,
+                    isPresetable=True,
                 )
             except Exception as e:
                 logger.error(f"Failed to resolve TUNEIN station {station_id}: {e}")
@@ -318,6 +318,13 @@ class Speakers:
         logger.info(
             f"Attempting playback of content item {content_item_id} on device {device_id}"
         )
+        # Radio-browser.info presets saved via soundcork UI: replay via play_radio_station
+        # so the Orion proxy URL is always rebuilt from the current base_url.
+        if content_item.source == "RADIO_BROWSER":
+            return self.play_radio_station(
+                device_id, content_item.location, content_item.name
+            )
+
         # For cloud-dependent sources (e.g. TUNEIN), resolve the stream URL
         # locally so the device doesn't need to contact the offline Bose BMX servers.
         bose_content_item = self._resolve_to_internet_radio(content_item)
@@ -469,7 +476,7 @@ class Speakers:
                 typeValue="stationurl",
                 location=orion_url,
                 sourceAccount="",
-                isPresetable=False,
+                isPresetable=True,
             )
             client = SoundTouchClient(cd.st_device)
             client.PlayContentItem(bose_ci)
