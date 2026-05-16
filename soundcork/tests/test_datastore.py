@@ -44,27 +44,27 @@ def sample_device() -> DeviceInfo:
 def test_poweron_devices_dir_calls_mkdir_when_missing_datastore_dir(
     datastore: DataStore, monkeypatch
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     monkeypatch.setattr("soundcork.datastore.path.exists", lambda _: False)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
 
     result = datastore.poweron_devices_dir()
 
     assert result == f"/virtual/data/{DEVICES_DIR}"
-    mkdir_mock.assert_called_once_with(f"/virtual/data/{DEVICES_DIR}")
+    makedirs_mock.assert_called_once_with(f"/virtual/data/{DEVICES_DIR}", exist_ok=True)
 
 
 def test_poweron_devices_dir_skips_mkdir_when_present(
     datastore: DataStore, monkeypatch
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     monkeypatch.setattr("soundcork.datastore.path.exists", lambda _: True)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
 
     result = datastore.poweron_devices_dir()
 
     assert result == f"/virtual/data/{DEVICES_DIR}"
-    mkdir_mock.assert_not_called()
+    makedirs_mock.assert_not_called()
 
 
 def test_account_dir_raises_not_found_when_missing_datastore_dir(
@@ -189,30 +189,30 @@ def test_device_info_path_raises_when_missing_device_dir(
 def test_create_account_calls_mkdir_if_account_dir_missing(
     datastore: DataStore, monkeypatch
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     monkeypatch.setattr(datastore, "account_exists", lambda _: False)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
 
     created = datastore.create_account("12345", label="")
 
     assert created is True
-    assert mkdir_mock.call_args_list == [
-        call("/virtual/data/12345"),
-        call(f"/virtual/data/12345/{DEVICES_DIR}"),
+    assert makedirs_mock.call_args_list == [
+        call("/virtual/data/12345", exist_ok=True),
+        call(f"/virtual/data/12345/{DEVICES_DIR}", exist_ok=True),
     ]
 
 
 def test_create_account_returns_false_if_account_dir_present(
     datastore: DataStore, monkeypatch
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     monkeypatch.setattr(datastore, "account_exists", lambda _: True)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
 
     created = datastore.create_account("12345", label="")
 
     assert created is False
-    mkdir_mock.assert_not_called()
+    makedirs_mock.assert_not_called()
 
 
 def test_add_device_returns_none_if_account_device_dir_missing(
@@ -232,17 +232,17 @@ def test_add_device_calls_mkdir_and_save_info_if_account_device_dir_present(
     sample_device: DeviceInfo,
     monkeypatch,
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     save_mock = MagicMock()
     monkeypatch.setattr(datastore, "device_exists", lambda *_: False)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
     monkeypatch.setattr(datastore, "save_device_info", save_mock)
 
     added = datastore.add_device("12345", sample_device.device_id, sample_device)
 
     assert added is not None
-    mkdir_mock.assert_called_once_with(
-        f"/virtual/data/12345/{DEVICES_DIR}/{sample_device.device_id}"
+    makedirs_mock.assert_called_once_with(
+        f"/virtual/data/12345/{DEVICES_DIR}/{sample_device.device_id}", exist_ok=True
     )
     save_mock.assert_called_once_with(sample_device, "12345")
 
@@ -550,15 +550,15 @@ def test_save_poweron_writes_xml_when_dir_exists(
     sample_device: DeviceInfo,
     monkeypatch,
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     open_mock = mock_open()
     monkeypatch.setattr("soundcork.datastore.path.exists", lambda _: True)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
     monkeypatch.setattr("builtins.open", open_mock)
 
     datastore.save_poweron(sample_device.device_id, "<updates />")
 
-    mkdir_mock.assert_not_called()
+    makedirs_mock.assert_not_called()
     open_mock.assert_called_once_with(
         f"/virtual/data/devices/{sample_device.device_id}/{POWERON_FILE}", "w"
     )
@@ -569,10 +569,10 @@ def test_save_poweron_creates_dir_when_missing_and_writes_xml(
     sample_device: DeviceInfo,
     monkeypatch,
 ):
-    mkdir_mock = MagicMock()
+    makedirs_mock = MagicMock()
     open_mock = mock_open()
     monkeypatch.setattr("soundcork.datastore.path.exists", lambda _: False)
-    monkeypatch.setattr("soundcork.datastore.mkdir", mkdir_mock)
+    monkeypatch.setattr("soundcork.datastore.makedirs", makedirs_mock)
     monkeypatch.setattr("builtins.open", open_mock)
 
     datastore.save_poweron(sample_device.device_id, "<updates />")
