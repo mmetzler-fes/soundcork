@@ -969,7 +969,7 @@ app.include_router(get_groups_service_router(datastore))
 #  include admin and miniapp routers only when GUI is enabled
 if settings.enable_gui:
     app.include_router(get_admin_router(datastore, speakers))
-    app.include_router(get_miniapp_router(datastore, speakers))
+    app.include_router(get_miniapp_router(datastore, speakers, settings))
 
 # 404 handling
 handler = NotFoundHandler(settings.unhandled_log_dir)

@@ -336,3 +336,89 @@ class Speakers:
         except Exception as e:
             logger.error(f"Error stopping playback on device {device_id}: {e}")
             return False
+
+    def get_volume(self, device_id: str) -> int | None:
+        """Get the current volume of a device (0-100), or None on failure."""
+        cd = self.all_devices().get(device_id)
+        if not cd or not cd.st_device:
+            logger.error(f"Device {device_id} not found or not online")
+            return None
+        try:
+            client = SoundTouchClient(cd.st_device)
+            vol = client.GetVolume()
+            return int(vol.ActualVolume)
+        except Exception as e:
+            logger.error(f"Error getting volume for device {device_id}: {e}")
+            return None
+
+    def set_volume(self, device_id: str, level: int) -> bool:
+        """Set the volume of a device to level (0-100).
+
+        Returns True on success, False otherwise.
+        """
+        level = max(0, min(100, level))
+        cd = self.all_devices().get(device_id)
+        if not cd or not cd.st_device:
+            logger.error(f"Device {device_id} not found or not online")
+            return False
+        try:
+            client = SoundTouchClient(cd.st_device)
+            client.SetVolumeLevel(level)
+            logger.info(f"Set volume to {level} on device {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting volume for device {device_id}: {e}")
+            return False
+
+    def play_radio_station(self, device_id: str, stream_url: str, name: str) -> bool:
+        """Play an internet radio stream URL directly on a device.
+
+        Uses the LOCAL_INTERNET_RADIO source type via the Soundcork Orion proxy
+        so that the device receives a well-formed playback response.
+
+        Args:
+            device_id: The device ID to play on
+            stream_url: Direct HTTP audio stream URL
+            name: Human-readable station name
+
+        Returns:
+            True if successful, False otherwise
+        """
+        import base64 as _b64
+        import json as _json
+
+        cd = self.all_devices().get(device_id)
+        if not cd or not cd.st_device:
+            logger.error(f"Device {device_id} not found or not online")
+            return False
+
+        base = self._settings.base_url.rstrip("/") if self._settings.base_url else ""
+        if not base:
+            logger.warning(
+                "base_url is not configured; cannot build LOCAL_INTERNET_RADIO URL"
+            )
+            return False
+
+        station_data = _b64.urlsafe_b64encode(
+            _json.dumps({"name": name, "imageUrl": "", "streamUrl": stream_url}).encode()
+        ).decode()
+        orion_url = (
+            f"{base}/core02/svc-bmx-adapter-orion/prod/orion"
+            f"/station?data={station_data}"
+        )
+        try:
+            bose_ci = BCContentItem(
+                name=name,
+                source="LOCAL_INTERNET_RADIO",
+                typeValue="stationurl",
+                location=orion_url,
+                sourceAccount="",
+                isPresetable=False,
+            )
+            client = SoundTouchClient(cd.st_device)
+            client.PlayContentItem(bose_ci)
+            logger.info(f"Started radio station '{name}' on device {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error playing radio station on device {device_id}: {e}")
+            return False

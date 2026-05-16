@@ -12,6 +12,10 @@ services:
       - data_dir=/soundcork/data
       - SOUNDCORK_MODE=local
       - SOUNDCORK_LOG_DIR=/soundcork/logs/traffic
+      # Optional: Music Assistant integration
+      # Point to the Music Assistant web UI and stream URL after setting up MA.
+      - music_assistant_url=${MUSIC_ASSISTANT_URL:-}
+      - music_assistant_stream_url=${MUSIC_ASSISTANT_STREAM_URL:-}
     volumes:
       - ./data:/soundcork/data
       - ./logs:/soundcork/logs
@@ -24,6 +28,16 @@ services:
     volumes:
       - ./nginx-ETag.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
+  music-assistant:
+    image: ghcr.io/music-assistant/server:latest
+    container_name: music-assistant
+    # host network gives MA access to mDNS/Airplay discovery on the LAN
+    network_mode: host
+    environment:
+      - LOG_LEVEL=info
+    volumes:
+      - ./music-assistant-data:/data
+    restart: unless-stopped
 
 # Setup (one time):
 #   cp .env.example .env
@@ -34,3 +48,7 @@ services:
 #   docker compose up -d
 #   docker compose logs -f
 #   docker compose stop
+#
+# Music Assistant is available at http://<host>:8095 after first start.
+# To connect SoundTouch: configure MUSIC_ASSISTANT_URL and
+# MUSIC_ASSISTANT_STREAM_URL in your .env file once MA is set up.

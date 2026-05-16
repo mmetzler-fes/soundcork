@@ -118,11 +118,196 @@
             </div>
             {% endif %}
         </section>
+
+        <section class="dashboard-section" aria-labelledby="radio-heading">
+            <h2 id="radio-heading">Internetradio</h2>
+            {% if not selected_device_id %}
+            <p class="hint">Wähle zuerst ein Gerät aus, um Radio abspielen zu können.</p>
+            {% endif %}
+            <form class="radio-search-form" id="radio-search-form" onsubmit="searchRadio(event)">
+                <input
+                    type="search"
+                    id="radio-search-input"
+                    name="q"
+                    placeholder="Sender suchen (z.B. NDR, Jazz, SWR3) …"
+                    aria-label="Radiosender suchen">
+                <button type="submit">Suchen</button>
+                <button type="button" onclick="searchRadio(null, '')">Top-Sender</button>
+            </form>
+            <div id="radio-status" class="radio-status" aria-live="polite"></div>
+            <ul id="radio-results" class="radio-results" aria-label="Suchergebnisse"></ul>
+        </section>
     </main>
     <section class="left-sidebar">
         <img src="/static/images/soundcork.png" alt="Soundcork">
+        <div class="volume-control" id="volume-control">
+            <label for="volume-slider">🔊 <span id="volume-label">—</span></label>
+            <input
+                type="range"
+                id="volume-slider"
+                min="0" max="100" step="1"
+                aria-label="Volume"
+                disabled>
+        </div>
+        {% if music_assistant_url %}
+        <div class="ma-sidebar">
+            <button type="button" class="ma-open-button" onclick="window.open('{{ music_assistant_url }}', '_blank', 'noopener')">
+                🎵 Music Assistant öffnen
+            </button>
+            <button type="button" class="ma-play-button" id="ma-play-btn">
+                ▶ MA auf Speaker abspielen
+            </button>
+        </div>
+        {% endif %}
     </section>
     <footer class="footer"></footer>
   </div>
+
+<script>
+// ------------------------------------------------------------------ //
+// Volume slider
+// ------------------------------------------------------------------ //
+(function () {
+    const slider = document.getElementById('volume-slider');
+    const label  = document.getElementById('volume-label');
+    if (!slider) return;
+
+    let debounceTimer;
+
+    async function fetchVolume() {
+        try {
+            const r = await fetch('/miniapp/volume');
+            if (!r.ok) return;
+            const d = await r.json();
+            if (typeof d.volume === 'number') {
+                slider.value   = d.volume;
+                label.textContent = d.volume;
+                slider.disabled = false;
+            }
+        } catch (_) {}
+    }
+
+    slider.addEventListener('input', () => {
+        label.textContent = slider.value;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+            try {
+                await fetch('/miniapp/volume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ volume: parseInt(slider.value, 10) }),
+                });
+            } catch (_) {}
+        }, 200);
+    });
+
+    // Only fetch if a device cookie is present
+    if (document.cookie.includes('soundcork_selected_device_id')) {
+        fetchVolume();
+    }
+})();
+
+// ------------------------------------------------------------------ //
+// Radio Browser
+// ------------------------------------------------------------------ //
+async function searchRadio(evt, forceQuery) {
+    if (evt) evt.preventDefault();
+
+    const input   = document.getElementById('radio-search-input');
+    const results = document.getElementById('radio-results');
+    const status  = document.getElementById('radio-status');
+
+    const q = forceQuery !== undefined ? forceQuery : (input ? input.value.trim() : '');
+
+    status.textContent = 'Suche läuft …';
+    results.innerHTML  = '';
+
+    try {
+        const r = await fetch('/miniapp/radio?q=' + encodeURIComponent(q));
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            status.textContent = 'Fehler: ' + (d.error || 'Unbekannter Fehler');
+            return;
+        }
+        const stations = d.stations || [];
+        status.textContent = stations.length
+            ? stations.length + ' Sender gefunden'
+            : 'Keine Sender gefunden.';
+
+        stations.forEach(s => {
+            const li = document.createElement('li');
+            li.className = 'radio-station-item';
+
+            const favicon = s.favicon
+                ? `<img src="${escHtml(s.favicon)}" alt="" class="radio-favicon" onerror="this.style.display='none'">`
+                : '<span class="radio-favicon-placeholder">📻</span>';
+
+            li.innerHTML = `
+                ${favicon}
+                <span class="radio-name">${escHtml(s.name)}</span>
+                <span class="radio-meta">${escHtml(s.country)}${s.bitrate ? ' · ' + s.bitrate + ' kbps' : ''}</span>
+                <button class="radio-play-btn" aria-label="Play ${escHtml(s.name)}">▶ Play</button>
+            `;
+            li.querySelector('.radio-play-btn').addEventListener('click', () => playStation(s));
+            results.appendChild(li);
+        });
+    } catch (e) {
+        status.textContent = 'Netzwerkfehler beim Abrufen der Sender.';
+    }
+}
+
+async function playStation(station) {
+    const status = document.getElementById('radio-status');
+    status.textContent = `Starte „${station.name}" …`;
+    try {
+        const r = await fetch('/miniapp/play-radio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: station.url, name: station.name }),
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            status.textContent = `▶ Spielt: ${station.name}`;
+        } else {
+            status.textContent = 'Fehler: ' + (d.error || 'Wiedergabe fehlgeschlagen');
+        }
+    } catch (_) {
+        status.textContent = 'Netzwerkfehler beim Starten der Wiedergabe.';
+    }
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ------------------------------------------------------------------ //
+// Music Assistant — play stream on speaker
+// ------------------------------------------------------------------ //
+(function () {
+    const btn = document.getElementById('ma-play-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '⏳ …';
+        try {
+            const r = await fetch('/miniapp/play-music-assistant', { method: 'POST' });
+            const d = await r.json();
+            if (r.ok && d.ok) {
+                btn.textContent = '▶ MA läuft auf Speaker';
+            } else {
+                btn.textContent = '✗ ' + (d.error || 'Fehler');
+            }
+        } catch (_) {
+            btn.textContent = '✗ Netzwerkfehler';
+        } finally {
+            btn.disabled = false;
+        }
+    });
+})();
+</script>
 </body>
 </html>

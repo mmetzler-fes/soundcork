@@ -2,14 +2,18 @@
 Endpoints for a miniapp UI.
 """
 
+import json
 import logging
+import urllib.request
+import urllib.parse
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from soundcork.config import Settings
 from soundcork.constants import DEFAULT_DEVICE_IMAGE, DEVICE_IMAGE_MAP
 from soundcork.datastore import DataStore
 from soundcork.ui.speakers import Speakers
@@ -18,6 +22,9 @@ if TYPE_CHECKING:
     from soundcork.model import Preset
 
 logger = logging.getLogger(__name__)
+
+# radio-browser.info API base — uses one of the community DNS-round-robin servers
+_RADIO_BROWSER_API = "https://de1.api.radio-browser.info/json"
 
 
 def encode_cookie_value(value: object) -> str:
@@ -36,7 +43,7 @@ def get_device_image(product_code: str) -> str:
     return DEVICE_IMAGE_MAP.get(product_code.lower(), DEFAULT_DEVICE_IMAGE)
 
 
-def get_miniapp_router(datastore: DataStore, speakers: Speakers):
+def get_miniapp_router(datastore: DataStore, speakers: Speakers, settings: Settings | None = None):
     import os as _os
     templates = Jinja2Templates(directory=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "templates"))
 
@@ -216,6 +223,7 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
             )
             selected_device_id = request.cookies.get("soundcork_selected_device_id")
             is_playing = request.cookies.get("soundcork_is_playing", "false")
+            ma_url = getattr(settings, "music_assistant_url", "") if settings else ""
 
             return templates.TemplateResponse(
                 request=request,
@@ -229,6 +237,7 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
                     "selected_device": selected_device,
                     "selected_device_id": selected_device_id,
                     "is_playing": is_playing,
+                    "music_assistant_url": ma_url,
                     "error": None,
                 },
             )
@@ -245,6 +254,7 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
             )
             selected_device_id = request.cookies.get("soundcork_selected_device_id")
             is_playing = request.cookies.get("soundcork_is_playing", "false")
+            ma_url = getattr(settings, "music_assistant_url", "") if settings else ""
 
             return templates.TemplateResponse(
                 request=request,
@@ -258,6 +268,7 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
                     "selected_device": selected_device,
                     "selected_device_id": selected_device_id,
                     "is_playing": is_playing,
+                    "music_assistant_url": ma_url,
                     "error": "Error loading dashboard data",
                 },
             )
@@ -552,5 +563,127 @@ def get_miniapp_router(datastore: DataStore, speakers: Speakers):
         response.delete_cookie("soundcork_is_playing")
         logger.info("User logged out")
         return response
+
+    # ------------------------------------------------------------------
+    # Volume
+    # ------------------------------------------------------------------
+
+    @router.get("/miniapp/volume")
+    async def get_volume(request: Request):
+        """Return the current volume (0-100) of the selected device as JSON."""
+        device_id = request.cookies.get("soundcork_selected_device_id")
+        if not device_id:
+            return JSONResponse({"error": "no device selected"}, status_code=400)
+        level = speakers.get_volume(device_id)
+        if level is None:
+            return JSONResponse({"error": "device unreachable"}, status_code=503)
+        return JSONResponse({"volume": level})
+
+    @router.post("/miniapp/volume")
+    async def set_volume(request: Request):
+        """Set the volume of the selected device. Body: JSON {\"volume\": 0-100}."""
+        device_id = request.cookies.get("soundcork_selected_device_id")
+        if not device_id:
+            return JSONResponse({"error": "no device selected"}, status_code=400)
+        try:
+            body = await request.json()
+            level = int(body.get("volume", 50))
+        except Exception:
+            return JSONResponse({"error": "invalid body"}, status_code=400)
+        success = speakers.set_volume(device_id, level)
+        if success:
+            return JSONResponse({"ok": True, "volume": level})
+        return JSONResponse({"error": "failed to set volume"}, status_code=503)
+
+    # ------------------------------------------------------------------
+    # Radio Browser
+    # ------------------------------------------------------------------
+
+    @router.get("/miniapp/radio")
+    async def radio_search(request: Request, q: str = ""):
+        """Search radio-browser.info and return matching stations as JSON."""
+        stations: list[dict] = []
+        try:
+            if q.strip():
+                api_url = (
+                    f"{_RADIO_BROWSER_API}/stations/search"
+                    f"?name={urllib.parse.quote_plus(q)}&limit=40&hidebroken=true"
+                    f"&order=clickcount&reverse=true"
+                )
+            else:
+                # Return the 40 most popular stations when no query is given
+                api_url = (
+                    f"{_RADIO_BROWSER_API}/stations/search"
+                    f"?limit=40&hidebroken=true&order=clickcount&reverse=true"
+                )
+            req = urllib.request.Request(
+                api_url,
+                headers={"User-Agent": "soundcork/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode())
+            for s in data:
+                stations.append(
+                    {
+                        "uuid": s.get("stationuuid", ""),
+                        "name": s.get("name", ""),
+                        "url": s.get("url_resolved") or s.get("url", ""),
+                        "favicon": s.get("favicon", ""),
+                        "country": s.get("countrycode", ""),
+                        "tags": s.get("tags", ""),
+                        "bitrate": s.get("bitrate", 0),
+                    }
+                )
+        except Exception as e:
+            logger.error(f"radio-browser.info query failed: {e}")
+            return JSONResponse({"error": "radio-browser.info unreachable"}, status_code=503)
+        return JSONResponse({"stations": stations})
+
+    @router.post("/miniapp/play-radio")
+    async def play_radio(request: Request):
+        """Play a radio-browser.info station on the selected device."""
+        device_id = request.cookies.get("soundcork_selected_device_id")
+        if not device_id:
+            return JSONResponse({"error": "no device selected"}, status_code=400)
+        try:
+            body = await request.json()
+            stream_url = str(body.get("url", "")).strip()
+            name = str(body.get("name", "Internet Radio")).strip()
+        except Exception:
+            return JSONResponse({"error": "invalid body"}, status_code=400)
+        if not stream_url:
+            return JSONResponse({"error": "missing url"}, status_code=400)
+        success = speakers.play_radio_station(device_id, stream_url, name)
+        if success:
+            return JSONResponse({"ok": True})
+        return JSONResponse({"error": "playback failed"}, status_code=503)
+
+    # ------------------------------------------------------------------
+    # Music Assistant
+    # ------------------------------------------------------------------
+
+    @router.get("/miniapp/music-assistant-url")
+    async def music_assistant_url(request: Request):
+        """Return the configured Music Assistant URL."""
+        ma_url = getattr(settings, "music_assistant_url", "") if settings else ""
+        return JSONResponse({"url": ma_url or ""})
+
+    @router.post("/miniapp/play-music-assistant")
+    async def play_music_assistant(request: Request):
+        """Play the Music Assistant stream on the selected SoundTouch device."""
+        device_id = request.cookies.get("soundcork_selected_device_id")
+        if not device_id:
+            return JSONResponse({"error": "no device selected"}, status_code=400)
+        ma_url = getattr(settings, "music_assistant_url", "") if settings else ""
+        ma_stream_url = getattr(settings, "music_assistant_stream_url", "") if settings else ""
+        if not ma_stream_url:
+            return JSONResponse(
+                {"error": "music_assistant_stream_url not configured"},
+                status_code=503,
+            )
+        success = speakers.play_radio_station(device_id, ma_stream_url, "Music Assistant")
+        if success:
+            return JSONResponse({"ok": True, "ma_url": ma_url})
+        return JSONResponse({"error": "playback failed"}, status_code=503)
 
     return router

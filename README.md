@@ -5,11 +5,17 @@ Intercept API for Bose SoundTouch after they turn off the servers
 
 soundcork is a self-hosted replacement for the Bose cloud services that were shut down in February 2026. It replaces the Marge server, the BMX registry server, and related endpoints that SoundTouch devices depend on for basic network functionality, TuneIn radio, custom radio streams, and SiriusXM.
 
-This fork adds two deployment improvements over the original:
+This fork adds deployment improvements and new UI features over the original:
 
 - **Docker container deployment** — soundcork and an nginx reverse proxy run as Docker containers. The image is published at `ghcr.io/mmetzler-fes/soundcork:main` and supports both `linux/amd64` and `linux/arm64` (Raspberry Pi, NAS). Configuration and data are mounted as volumes so the container can be updated without losing data.
 
 - **Connection relay (port 30034)** — The SoundTouch firmware routes certain HTTPS requests through a local proxy at `127.0.0.1:30034`. soundcork installs a persistent `nc` relay on the speaker (via `/mnt/nv/rc.local`) that forwards all connections on that port to the soundcork server. This makes BMX and media artwork requests work without any modifications to the speaker's certificate trust store.
+
+- **Internet radio browser** — The dashboard includes a search-as-you-type radio browser powered by [radio-browser.info](https://www.radio-browser.info). Any station can be started on a SoundTouch speaker with a single click.
+
+- **Volume slider** — A range slider in the sidebar shows and controls the current speaker volume in real time via the SoundTouch HTTP API.
+
+- **Music Assistant integration** — [Music Assistant](https://music-assistant.io) runs as an additional Docker container (`ghcr.io/music-assistant/server:latest`, reachable at port 8095). A button in the dashboard opens its web UI in a new browser window. A second button starts the Music Assistant audio stream directly on the selected SoundTouch speaker (requires `MUSIC_ASSISTANT_STREAM_URL` to be set in `.env` — see configuration below).
 
 Read [SECURITY.md](SECURITY.md) carefully. This should only be run inside your home network, behind a firewall. (If you have a router at home, it probably has a firewall on it.) Don't put it on an open network.
 
@@ -111,6 +117,14 @@ BASE_URL=http://192.168.1.100:8001
 
 # IP of the SoundTouch speaker (needed by setup-speaker.sh)
 SPEAKER_IP=192.168.1.200
+
+# Music Assistant (optional)
+# Set MUSIC_ASSISTANT_URL to show the "Open Music Assistant" button in the dashboard.
+# Set MUSIC_ASSISTANT_STREAM_URL to enable "Play on Speaker" (needs a stream URL from MA,
+# e.g. via a Snapcast virtual player: http://192.168.1.100:1704/stream).
+# Leave both empty or omit them to disable MA integration.
+MUSIC_ASSISTANT_URL=
+MUSIC_ASSISTANT_STREAM_URL=
 ```
 
 > Use the **LAN (Ethernet) IP** of your server for `BASE_URL` at this stage. You will update it to the WiFi IP in a later step if needed.
@@ -127,9 +141,10 @@ mkdir -p /opt/soundcork/data /opt/soundcork/logs
 docker compose up -d
 ```
 
-This starts two containers:
+This starts three containers:
 - **soundcork** — the main API server on port 8000
 - **nginx-ETag** — a reverse proxy on port 8001 that adds the `ETag` response header in the casing required by the SoundTouch firmware
+- **music-assistant** *(optional)* — Music Assistant on port 8095; comment out the `music-assistant` service block in `docker-compose.yml` if you do not need it
 
 Verify that the server is responding:
 ```sh

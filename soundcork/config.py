@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # IP address of the Bose SoundTouch speaker (used by start.sh)
     speaker_ip: str = ""
 
+    # Music Assistant integration (optional)
+    # URL of the Music Assistant web UI, e.g. http://192.168.1.100:8095
+    music_assistant_url: str = ""
+    # Direct HTTP audio stream exposed by Music Assistant (e.g. via Snapcast / virtual player)
+    # e.g. http://192.168.1.100:1704/stream
+    music_assistant_stream_url: str = ""
+
     model_config = SettingsConfigDict(
         # `.env.private` takes priority over `.env.shared`
         env_file=(".env.shared", ".env.private")
