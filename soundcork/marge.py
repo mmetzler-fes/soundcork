@@ -74,8 +74,16 @@ def presets_xml(datastore: "DataStore", account: str, device: str = "") -> ET.El
 
     presets_element = ET.Element("presets")
     for preset in presets_list:
-        preset_element = preset_xml(preset, conf_sources_list)
-        presets_element.append(preset_element)
+        try:
+            preset_element = preset_xml(preset, conf_sources_list)
+            presets_element.append(preset_element)
+        except HTTPException:
+            logger.warning(
+                "Skipping preset %s ('%s'): source '%s' not in configured sources",
+                preset.id,
+                preset.name,
+                preset.source,
+            )
 
     return presets_element
 
