@@ -263,6 +263,17 @@ def recents_xml(datastore: "DataStore", account: str, device: str) -> ET.Element
         except:
             created_on = DEFAULT_DATESTR
 
+        try:
+            source_elem = content_item_source_xml(conf_sources_list, recent)
+        except HTTPException:
+            logger.warning(
+                "Skipping recent %s ('%s'): source '%s' not in configured sources",
+                recent.id,
+                recent.name,
+                recent.source,
+            )
+            continue
+
         recent_element = ET.SubElement(recents_element, "recent")
         recent_element.attrib["id"] = recent.id
         ET.SubElement(recent_element, "contentItemType").text = recent.type
@@ -270,7 +281,7 @@ def recents_xml(datastore: "DataStore", account: str, device: str) -> ET.Element
         ET.SubElement(recent_element, "lastplayedat").text = lastplayed
         ET.SubElement(recent_element, "location").text = recent.location
         ET.SubElement(recent_element, "name").text = recent.name
-        recent_element.append(content_item_source_xml(conf_sources_list, recent))
+        recent_element.append(source_elem)
         ET.SubElement(recent_element, "updatedOn").text = lastplayed
 
     return recents_element
